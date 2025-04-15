@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Authentication & Identity -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity" Version="2.3.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="8.0.3" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.8.0" />
+
+    <!-- Hosting & Proxy -->
+    <PackageReference Include="Microsoft.AspNetCore.HttpOverrides" Version="2.3.0" />
+
+    <!-- Entity Framework & Databases -->
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.4">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.4" />
+
+    <!-- OData & SQL Querying -->
+    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="DynamicODataToSQL" Version="2.1.0" />
+    <PackageReference Include="SqlKata" Version="4.0.1" />
+    <PackageReference Include="SqlKata.Execution" Version="4.0.1" />
+    <PackageReference Include="Microsoft.OData.Core" Version="7.21.4" />
+    <PackageReference Include="Microsoft.OData.Edm" Version="7.21.4" />
+    <PackageReference Include="Microsoft.OData.ModelBuilder" Version="1.0.9" />
+
+    <!-- Logging -->
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+
+    <!-- Azure -->
+    <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.7.0" />
+
+    <!-- Swagger -->
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="8.1.1" />
+
+    <!-- HTTP Utilities -->
+    <PackageReference Include="Flurl" Version="4.0.0" />
+  </ItemGroup>
+
+</Project>

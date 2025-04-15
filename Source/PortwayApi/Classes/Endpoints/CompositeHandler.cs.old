@@ -1,0 +1,288 @@
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using PortwayApi.Helpers;
+using Serilog;
+
+namespace PortwayApi.Classes;
+
+public class CompositeEndpointHandler
+{
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly Dictionary<string, (string Url, HashSet<string> Methods, bool IsPrivate, string Type)> _endpointMap;
+    private readonly string _serverName;
+    
+    public CompositeEndpointHandler(
+        IHttpClientFactory httpClientFactory,
+        Dictionary<string, (string Url, HashSet<string> Methods, bool IsPrivate, string Type)> endpointMap,
+        string serverName)
+    {
+        _httpClientFactory = httpClientFactory;
+        _endpointMap = endpointMap;
+        _serverName = serverName;
+    }
+
+    // ... [Previous methods from the last artifact] ...
+
+    /// <summary>
+    /// Extract the raw value from a JsonValue
+    /// </summary>
+    private object? ExtractRawValue(JsonValue jsonValue)
+    {
+        if (jsonValue.TryGetValue<string>(out var stringValue))
+            return stringValue;
+            
+        if (jsonValue.TryGetValue<int>(out var intValue))
+            return intValue;
+            
+        if (jsonValue.TryGetValue<long>(out var longValue))
+            return longValue;
+            
+        if (jsonValue.TryGetValue<double>(out var doubleValue))
+            return doubleValue;
+            
+        if (jsonValue.TryGetValue<bool>(out var boolValue))
+            return boolValue;
+            
+        if (jsonValue.TryGetValue<DateTime>(out var dateValue))
+            return dateValue;
+            
+        return null;
+    }
+    
+    /// <summary>
+    /// Get a nested value from a JSON node using a property path (e.g., "prop1.prop2.prop3")
+    /// </summary>
+    private JsonNode? GetNestedValue(JsonNode? node, string propertyPath)
+    {
+        if (node == null || string.IsNullOrEmpty(propertyPath))
+        {
+            return null;
+        }
+        
+        var parts = propertyPath.Split('.');
+        var current = node;
+        
+        foreach (var part in parts)
+        {
+            if (current is JsonObject obj && obj.TryGetPropertyValue(part, out var value))
+            {
+                current = value;
+            }
+            else if (current is JsonArray array && int.TryParse(part, out var index) && index >= 0 && index < array.Count)
+            {
+                current = array[index];
+            }
+            else
+            {
+                Log.Warning("Property path part '{Part}' not found in JSON object", part);
+                return null;
+            }
+        }
+        
+        return current;
+    }
+
+    /// <summary>  
+    /// Get or create a shared value based on the template     
+    /// </summary>
+    private string GetOrCreateSharedValue(ExecutionContext context, string valueTemplate)
+    {
+        // Create a context key based on the template
+        var contextKey = $"shared:{valueTemplate}";
+        
+        // Check if we already have a value for this template
+        var existingValue = context.GetVariable<string>(contextKey);
+        if (!string.IsNullOrEmpty(existingValue))
+        {
+            return existingValue;
+        }
+        
+        // Generate a new value based on the template
+        string newValue;
+        switch (valueTemplate.ToLowerInvariant())
+        {
+            case "$guid":
+                newValue = Guid.NewGuid().ToString();
+                break;
+            // Add other shared value types here if needed
+            default:
+                newValue = Guid.NewGuid().ToString(); // Default to GUID
+                break;
+        }
+        
+        // Store the value in the context for reuse
+        context.SetVariable(contextKey, newValue);
+        return newValue;
+    }
+
+    /// <summary>
+    /// Rewrites URLs in the composite result to use the proxy URL
+    /// </summary>
+    private void RewriteUrlsInResult(CompositeResult result, HttpContext context, string env, string endpointName)
+    {
+        try
+        {
+            // For each step that has endpoints URLs in their metadata
+            foreach (var stepKey in result.StepResults.Keys.ToList())
+            {
+                object stepResult = result.StepResults[stepKey];
+                
+                // Convert to JSON string for processing
+                string jsonString = JsonSerializer.Serialize(stepResult);
+                
+                // Find all the endpoints used in this composite process
+                foreach (var endpoint in _endpointMap)
+                {
+                    // Skip endpoints that are not relevant to this step
+                    if (jsonString.IndexOf(endpoint.Value.Url, StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+
+                    // Parse original URL parts for replacement
+                    if (!Uri.TryCreate(endpoint.Value.Url, UriKind.Absolute, out var originalUri))
+                    {
+                        Log.Warning("❌ Could not parse endpoint URL as URI: {Url}", endpoint.Value.Url);
+                        continue;
+                    }
+
+                    var originalHost = $"{originalUri.Scheme}://{originalUri.Host}:{originalUri.Port}";
+                    var originalPath = originalUri.AbsolutePath.TrimEnd('/');
+
+                    // Proxy path = /api/{env}/{endpoint}
+                    var proxyHost = $"{context.Request.Scheme}://{context.Request.Host}";
+                    var proxyPath = $"/api/{env}/{endpoint.Key}";
+
+                    // Apply URL rewriting
+                    jsonString = UrlHelper.RewriteUrl(
+                        jsonString, originalHost, originalPath, proxyHost, proxyPath);
+                }
+                
+                // Convert back to object
+                try
+                {
+                    var options = new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true,
+                        WriteIndented = true
+                    };
+                    
+                    var rewrittenResult = JsonSerializer.Deserialize<object>(jsonString, options);
+                    if (rewrittenResult != null)
+                    {
+                        result.StepResults[stepKey] = rewrittenResult;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Failed to deserialize rewritten JSON for step {StepName}", stepKey);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error rewriting URLs in composite result");
+        }
+    }
+}
+
+/// <summary>
+/// Represents a result of a composite endpoint execution with enhanced error details
+/// </summary>
+public class CompositeResult
+{
+    /// <summary>
+    /// Indicates whether the composite operation was successful
+    /// </summary>
+    public bool Success { get; set; } = true;
+    
+    /// <summary>
+    /// Dictionary of results from each step in the composite operation
+    /// </summary>
+    public Dictionary<string, object> StepResults { get; set; } = new();
+    
+    /// <summary>
+    /// The name of the step that failed (null if successful)
+    /// </summary>
+    public string? ErrorStep { get; set; }
+    
+    /// <summary>
+    /// Error message if the composite operation failed
+    /// </summary>
+    public string? ErrorMessage { get; set; }
+    
+    /// <summary>
+    /// Detailed error information from the underlying API
+    /// </summary>
+    public string? ErrorDetail { get; set; }
+    
+    /// <summary>
+    /// The HTTP status code of the failed request
+    /// </summary>
+    public int? StatusCode { get; set; }
+}
+
+/// <summary>
+/// Detailed exception for composite step failures
+/// </summary>
+public class CompositeStepException : Exception
+{
+    /// <summary>
+    /// The name of the step that failed
+    /// </summary>
+    public string StepName { get; }
+    
+    /// <summary>
+    /// The HTTP status code returned by the failed request
+    /// </summary>
+    public int StatusCode { get; }
+    
+    /// <summary>
+    /// A detailed error message extracted from the response
+    /// </summary>
+    public string ErrorDetail { get; }
+    
+    /// <summary>
+    /// The full response body from the failed request
+    /// </summary>
+    public string ResponseContent { get; }
+    
+    /// <summary>
+    /// The structured error data, if the response was JSON
+    /// </summary>
+    public object? StructuredError { get; }
+    
+    public CompositeStepException(
+        string message,
+        string stepName,
+        int statusCode,
+        string errorDetail,
+        string responseContent,
+        object? structuredError = null) 
+        : base(message)
+    {
+        StepName = stepName;
+        StatusCode = statusCode;
+        ErrorDetail = errorDetail;
+        ResponseContent = responseContent;
+        StructuredError = structuredError;
+    }
+}
+
+/// <summary>
+/// Represents a step within a composite endpoint process
+/// </summary>
+public class CompositeStep
+{
+    public string Name { get; set; } = string.Empty;
+    public string Endpoint { get; set; } = string.Empty;
+    public string Method { get; set; } = "POST";
+    public string? DependsOn { get; set; }
+    public bool IsArray { get; set; } = false;
+    public string? ArrayProperty { get; set; }
+    public string? SourceProperty { get; set; }
+    public Dictionary<string, string> TemplateTransformations { get; set; } = new();
+}
+

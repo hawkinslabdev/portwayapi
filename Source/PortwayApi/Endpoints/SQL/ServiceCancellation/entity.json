@@ -1,0 +1,10 @@
+{
+    "DatabaseObjectName": "ServiceCancellation", 
+    "DatabaseSchema": "dbo",
+    "AllowedColumns": [
+      "RequestId",
+      "Status"
+    ],
+    "Procedure": "dbo.sp_ManageServiceRequests",
+    "AllowedMethods": ["DELETE"]
+  }

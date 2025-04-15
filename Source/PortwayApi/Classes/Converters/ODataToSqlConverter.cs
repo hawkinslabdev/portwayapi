@@ -101,9 +101,9 @@ public class ODataToSqlConverter : IODataToSqlConverter
             
             Log.Debug("✅ Successfully converted OData to SQL");
             Log.Debug("SQL Query: {SqlQuery}", compiled.Sql);
-            Log.Debug("Parameters: {Parameters}", string.Join(", ", compiled.Bindings.Select(p => $"{p.Key}={p.Value}")));
+            Log.Debug("Parameters: {Parameters}", string.Join(", ", compiled.NamedBindings.Select(p => $"{p.Key}={p.Value}")));
             
-            // Merge our tracked parameters with the bindings from SqlKata
+            // Transfer the bindings from SqlKata to our parameters dictionary
             foreach (var binding in compiled.NamedBindings)
             {
                 parameters[binding.Key] = binding.Value;

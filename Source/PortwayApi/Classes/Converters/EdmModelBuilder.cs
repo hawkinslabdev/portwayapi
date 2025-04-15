@@ -88,10 +88,10 @@ public class EdmModelBuilder : IEdmModelBuilder
         try
         {
             // Parse CSDL XML to EDM model
-            IEdmModel edmModel;
             IEnumerable<EdmError> errors;
+            IEdmModel? edmModel;
             
-            if (CsdlReader.TryParse(XmlReader.Create(new StringReader(csdl)), out errors, out edmModel))
+            if (CsdlReader.TryParse(XmlReader.Create(new StringReader(csdl)), out edmModel, out errors))
             {
                 return edmModel;
             }

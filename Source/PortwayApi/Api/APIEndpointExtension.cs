@@ -25,13 +25,13 @@ public static class APIEndpointExtensions
             HttpContext context,
             string env,
             string endpointPath,
+            [FromServices] IODataToSqlConverter oDataToSqlConverter,
+            [FromServices] IEnvironmentSettingsProvider environmentSettingsProvider,
             [FromQuery(Name = "$select")] string? select = null,
             [FromQuery(Name = "$filter")] string? filter = null,
             [FromQuery(Name = "$orderby")] string? orderby = null,
             [FromQuery(Name = "$top")] int top = 10,
-            [FromQuery(Name = "$skip")] int skip = 0,
-            [FromServices] IODataToSqlConverter oDataToSqlConverter,
-            [FromServices] IEnvironmentSettingsProvider environmentSettingsProvider) =>
+            [FromQuery(Name = "$skip")] int skip = 0) =>
         {
             var url = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.Path}{context.Request.QueryString}";
             Log.Information("📥 Query Request: {Url}", url);
@@ -134,6 +134,9 @@ public static class APIEndpointExtensions
             }
         })
         .WithName("QueryRecords");
+
+        // The rest of the APIEndpointExtensions implementation...
+        // (Post, Put, Delete methods follow the same pattern)
 
         app.MapPost("/api/{env}/{endpointPath}", async (
             HttpContext context,

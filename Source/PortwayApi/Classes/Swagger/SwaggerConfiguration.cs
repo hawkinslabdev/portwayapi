@@ -135,6 +135,9 @@ public static class SwaggerConfiguration
                 // Add filters
                 c.DocumentFilter<DynamicEndpointDocumentFilter>();
                 c.OperationFilter<DynamicEndpointOperationFilter>();
+                
+                // Add this line to resolve conflicting actions
+                c.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
             });
 
             builder.Services.AddSingleton<DynamicEndpointDocumentFilter>();

@@ -2,6 +2,7 @@ using System.IO.Compression;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using SqlKata.Compilers;
@@ -12,6 +13,7 @@ using PortwayApi.Helpers;
 using PortwayApi.Interfaces;
 using PortwayApi.Middleware;
 using PortwayApi.Services;
+using System.Text;
 using System.Text.Json;
 
 // Create log directory
@@ -40,7 +42,8 @@ Log.Logger = new LoggerConfiguration()
         logEvent.Properties["RequestPath"].ToString().Contains("/index.html")))
    .CreateLogger();
 
-Log.Information("🔍 Logging initialized successfully");
+    LogApplicationStartup();
+    Log.Information("🔍 Logging initialized successfully");
 
 try
 {
@@ -163,7 +166,11 @@ try
    var urlValidatorPath = Path.Combine(Directory.GetCurrentDirectory(), "environments", "network-access-policy.json");
    if (!File.Exists(urlValidatorPath))
    {
-       Directory.CreateDirectory(Path.GetDirectoryName(urlValidatorPath));
+       var directory = Path.GetDirectoryName(urlValidatorPath);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
        File.WriteAllText(urlValidatorPath, JsonSerializer.Serialize(new 
        { 
            allowedHosts = new[] { "localhost", "127.0.0.1" },
@@ -421,4 +428,21 @@ void EnsureDirectoryStructure()
    var webhookDir = Path.Combine(endpointsBaseDir, "Webhooks");
    if (!Directory.Exists(webhookDir))
        Directory.CreateDirectory(webhookDir);
+}
+
+void LogApplicationStartup()
+{
+    var logo = new StringBuilder();
+    logo.AppendLine(@"");
+    logo.AppendLine(@"  _____           _                        ");
+    logo.AppendLine(@" |  __ \         | |                       ");
+    logo.AppendLine(@" | |__) |__  _ __| |___      ____ _ _   _  ");
+    logo.AppendLine(@" |  ___/ _ \| '__| __\ \ /\ / / _` | | | | ");
+    logo.AppendLine(@" | |  | (_) | |  | |_ \ V  V / (_| | |_| | ");
+    logo.AppendLine(@" |_|   \___/|_|   \__| \_/\_/ \__,_|\__, | ");
+    logo.AppendLine(@"                                      _/ | ");
+    logo.AppendLine(@"                                     |___/ ");
+    logo.AppendLine(@"");
+    Log.Information(logo.ToString());
+
 }

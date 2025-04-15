@@ -1,8 +1,8 @@
 # Build results
 [Bb]in/
 [Oo]bj/
-[Ll]og/
-[Ll]ogs/
+/[Ll]og/
+/[Ll]ogs/
 
 # Visual Studio files
 .vs/

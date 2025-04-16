@@ -132,16 +132,25 @@ public static class SwaggerConfiguration
                     }
                 });
                 
-                // Add filters
-                c.DocumentFilter<DynamicEndpointDocumentFilter>();
-                c.OperationFilter<DynamicEndpointOperationFilter>();
+                // Add custom document and operation filters
+                c.DocumentFilter<SwaggerDocumentFilter>(); // General document filter for cleaning up routes
+                c.DocumentFilter<SwaggerCatchAllParameterFilter>(); // Handle catch-all parameters
+                c.DocumentFilter<DynamicEndpointDocumentFilter>(); // Dynamic endpoints
+                c.OperationFilter<SwaggerOperationFilter>(); // Add security to operations
+                c.OperationFilter<DynamicEndpointOperationFilter>(); // Add dynamic endpoint operations
+                c.DocumentFilter<CompositeEndpointDocumentFilter>(); // Handle composite endpoints
                 
-                // Add this line to resolve conflicting actions
+                // This is critical for handling conflicts
+                c.CustomOperationIds(apiDesc => 
+                    $"{apiDesc.HttpMethod?.ToLowerInvariant() ?? "get"}_{apiDesc.RelativePath?.Replace("/", "_").Replace("{", "").Replace("}", "")}");
+                
+                // This is important for resolving any conflicting routes
                 c.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
             });
 
             builder.Services.AddSingleton<DynamicEndpointDocumentFilter>();
             builder.Services.AddSingleton<DynamicEndpointOperationFilter>();
+            builder.Services.AddSingleton<CompositeEndpointDocumentFilter>();
             
             Log.Information("✅ Swagger services registered successfully");
         }
@@ -158,7 +167,17 @@ public static class SwaggerConfiguration
         if (!swaggerSettings.Enabled)
             return;
             
-        app.UseSwagger();
+        app.UseSwagger(c => {
+            // Optional callback to modify the Swagger document
+            c.PreSerializeFilters.Add((swaggerDoc, httpReq) => {
+                // Make sure the servers list is populated
+                swaggerDoc.Servers = new List<OpenApiServer>
+                {
+                    new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host.Value}" }
+                };
+            });
+        });
+        
         app.UseSwaggerUI(c =>
         {
             c.SwaggerEndpoint($"/swagger/{swaggerSettings.Version}/swagger.json", $"{swaggerSettings.Title} {swaggerSettings.Version}");

@@ -14,10 +14,9 @@ namespace PortwayApi.Api;
 
 /// <summary>
 /// Unified controller that handles all endpoint types (SQL, Proxy, Composite, Webhook)
-/// to avoid routing conflicts
 /// </summary>
 [ApiController]
-[Route("api/{env}/{**catchall}")]
+[Route("api")] // Base route only, we'll use action-level routing
 public class EndpointController : ControllerBase
 {
     private readonly IHttpClientFactory _httpClientFactory;
@@ -43,7 +42,10 @@ public class EndpointController : ControllerBase
         _compositeHandler = compositeHandler;
     }
 
-    [HttpGet]
+    /// <summary>
+    /// Handles GET requests to endpoints
+    /// </summary>
+    [HttpGet("{env}/{**catchall}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -96,6 +98,302 @@ public class EndpointController : ControllerBase
                 statusCode: StatusCodes.Status500InternalServerError
             );
         }
+    }
+
+    /// <summary>
+    /// Handles POST requests to endpoints
+    /// </summary>
+    [HttpPost("{env}/{**catchall}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> PostAsync(
+        string env,
+        string catchall)
+    {
+        try
+        {
+            // Process the catchall to determine what type of endpoint we're dealing with
+            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
+            
+            Log.Information("🔄 Processing {Type} endpoint: {Name} for POST", endpointType, endpointName);
+
+            // Check if environment is allowed
+            if (!_environmentSettings.IsEnvironmentAllowed(env))
+            {
+                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
+                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
+            }
+
+            // Read the request body - we'll need it for several endpoint types
+            Request.EnableBuffering();
+            string requestBody;
+            using (var reader = new StreamReader(Request.Body, leaveOpen: true))
+            {
+                requestBody = await reader.ReadToEndAsync();
+            }
+            // Reset position for further reading if needed
+            Request.Body.Position = 0;
+            
+            switch (endpointType)
+            {
+                case EndpointType.SQL:
+                    var data = JsonSerializer.Deserialize<JsonElement>(requestBody);
+                    return await HandleSqlPostRequest(env, endpointName, data);
+                    
+                case EndpointType.Proxy:
+                    return await HandleProxyRequest(env, endpointName, remainingPath, "POST");
+                    
+                case EndpointType.Composite:
+                    // Strip off the "composite/" prefix from the endpoint name if needed
+                    string actualCompositeName = endpointName.Replace("composite/", "");
+                    return await HandleCompositeRequest(env, actualCompositeName, requestBody);
+                    
+                case EndpointType.Webhook:
+                    var webhookData = JsonSerializer.Deserialize<JsonElement>(requestBody);
+                    return await HandleWebhookRequest(env, endpointName, webhookData);
+                    
+                default:
+                    Log.Warning("❌ Unknown endpoint type for {EndpointName}", endpointName);
+                    return NotFound(new { error = $"Endpoint '{endpointName}' not found" });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error processing POST request for {Path}", Request.Path);
+            return Problem(
+                detail: ex.Message, 
+                statusCode: StatusCodes.Status500InternalServerError
+            );
+        }
+    }
+
+    /// <summary>
+    /// Handles PUT requests to endpoints
+    /// </summary>
+    [HttpPut("{env}/{**catchall}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> PutAsync(
+        string env,
+        string catchall)
+    {
+        try
+        {
+            // Process the catchall to determine what type of endpoint we're dealing with
+            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
+            
+            Log.Information("🔄 Processing {Type} endpoint: {Name} for PUT", endpointType, endpointName);
+
+            // Check if environment is allowed
+            if (!_environmentSettings.IsEnvironmentAllowed(env))
+            {
+                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
+                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
+            }
+
+            // Read the request body for SQL endpoint
+            if (endpointType == EndpointType.SQL)
+            {
+                string requestBody;
+                using (var reader = new StreamReader(Request.Body))
+                {
+                    requestBody = await reader.ReadToEndAsync();
+                }
+                
+                var data = JsonSerializer.Deserialize<JsonElement>(requestBody);
+                return await HandleSqlPutRequest(env, endpointName, data);
+            }
+            else if (endpointType == EndpointType.Proxy)
+            {
+                return await HandleProxyRequest(env, endpointName, remainingPath, "PUT");
+            }
+            else
+            {
+                // Composite and Webhook endpoints don't support PUT
+                Log.Warning("❌ {Type} endpoints don't support PUT requests", endpointType);
+                return StatusCode(405, new { error = $"Method not allowed for {endpointType} endpoints" });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error processing PUT request for {Path}", Request.Path);
+            return Problem(
+                detail: ex.Message, 
+                statusCode: StatusCodes.Status500InternalServerError
+            );
+        }
+    }
+
+    /// <summary>
+    /// Handles DELETE requests to endpoints
+    /// </summary>
+    [HttpDelete("{env}/{**catchall}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteAsync(
+        string env,
+        string catchall,
+        [FromQuery] string? id = null)
+    {
+        try
+        {
+            // Process the catchall to determine what type of endpoint we're dealing with
+            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
+            
+            Log.Information("🔄 Processing {Type} endpoint: {Name} for DELETE", endpointType, endpointName);
+
+            // Check if environment is allowed
+            if (!_environmentSettings.IsEnvironmentAllowed(env))
+            {
+                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
+                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
+            }
+
+            switch (endpointType)
+            {
+                case EndpointType.SQL:
+                    // Ensure ID is provided for SQL DELETE
+                    if (string.IsNullOrEmpty(id))
+                    {
+                        return BadRequest(new { 
+                            error = "ID parameter is required for delete operations", 
+                            success = false 
+                        });
+                    }
+                    
+                    return await HandleSqlDeleteRequest(env, endpointName, id);
+                    
+                case EndpointType.Proxy:
+                    return await HandleProxyRequest(env, endpointName, remainingPath, "DELETE");
+                    
+                case EndpointType.Composite:
+                case EndpointType.Webhook:
+                    Log.Warning("❌ {Type} endpoints don't support DELETE requests", endpointType);
+                    return StatusCode(405, new { error = $"Method not allowed for {endpointType} endpoints" });
+                    
+                default:
+                    Log.Warning("❌ Unknown endpoint type for {EndpointName}", endpointName);
+                    return NotFound(new { error = $"Endpoint '{endpointName}' not found" });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error processing DELETE request for {Path}", Request.Path);
+            return Problem(
+                detail: ex.Message, 
+                statusCode: StatusCodes.Status500InternalServerError
+            );
+        }
+    }
+
+    /// <summary>
+    /// Handles PATCH requests to endpoints
+    /// </summary>
+    [HttpPatch("{env}/{**catchall}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> PatchAsync(
+        string env,
+        string catchall)
+    {
+        try
+        {
+            // Process the catchall to determine what type of endpoint we're dealing with
+            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
+            
+            Log.Information("🔄 Processing {Type} endpoint: {Name} for PATCH", endpointType, endpointName);
+
+            // Check if environment is allowed
+            if (!_environmentSettings.IsEnvironmentAllowed(env))
+            {
+                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
+                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
+            }
+
+            // Currently only proxy endpoints support PATCH
+            if (endpointType == EndpointType.Proxy)
+            {
+                return await HandleProxyRequest(env, endpointName, remainingPath, "PATCH");
+            }
+            
+            Log.Warning("❌ {Type} endpoints don't support PATCH requests", endpointType);
+            return StatusCode(405, new { error = $"Method not allowed for {endpointType} endpoints" });
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error processing PATCH request for {Path}", Request.Path);
+            return Problem(
+                detail: ex.Message, 
+                statusCode: StatusCodes.Status500InternalServerError
+            );
+        }
+    }
+
+    #region Helper Methods and Handlers
+
+    /// <summary>
+    /// Parses the catchall segment to determine endpoint type and name
+    /// </summary>
+    private (EndpointType Type, string Name, string RemainingPath) ParseEndpoint(string catchall)
+    {
+        // Default to proxy endpoint type
+        var endpointType = EndpointType.Proxy;
+        
+        // Split catchall into segments
+        var segments = catchall.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0)
+        {
+            return (EndpointType.Standard, string.Empty, string.Empty);
+        }
+        
+        string endpointName = segments[0];
+        string remainingPath = string.Join('/', segments.Skip(1));
+        
+        // Special handling for composite endpoints
+        if (endpointName.Equals("composite", StringComparison.OrdinalIgnoreCase))
+        {
+            // For composite endpoints, the second segment is the actual name
+            if (segments.Length > 1)
+            {
+                endpointName = $"composite/{segments[1]}";
+                remainingPath = string.Join('/', segments.Skip(2));
+            }
+            return (EndpointType.Composite, endpointName, remainingPath);
+        }
+        
+        // Special handling for webhook endpoints
+        if (endpointName.Equals("webhook", StringComparison.OrdinalIgnoreCase))
+        {
+            return (EndpointType.Webhook, remainingPath, string.Empty);
+        }
+        
+        // Check if this is a SQL endpoint
+        var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+        if (sqlEndpoints.ContainsKey(endpointName))
+        {
+            return (EndpointType.SQL, endpointName, remainingPath);
+        }
+        
+        // Check if this is a proxy endpoint
+        var proxyEndpoints = EndpointHandler.GetEndpoints(
+            Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Proxy")
+        );
+        
+        if (proxyEndpoints.ContainsKey(endpointName))
+        {
+            return (EndpointType.Proxy, endpointName, remainingPath);
+        }
+        
+        // Default to standard endpoint type if not recognized
+        return (EndpointType.Standard, endpointName, remainingPath);
     }
 
     /// <summary>
@@ -457,290 +755,6 @@ public class EndpointController : ControllerBase
         };
     }
 
-    [HttpPost]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> PostAsync(
-        string env,
-        string catchall)
-    {
-        try
-        {
-            // Process the catchall to determine what type of endpoint we're dealing with
-            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
-            
-            Log.Information("🔄 Processing {Type} endpoint: {Name} for POST", endpointType, endpointName);
-
-            // Check if environment is allowed
-            if (!_environmentSettings.IsEnvironmentAllowed(env))
-            {
-                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
-                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
-            }
-
-            // Read the request body - we'll need it for several endpoint types
-            Request.EnableBuffering();
-            string requestBody;
-            using (var reader = new StreamReader(Request.Body, leaveOpen: true))
-            {
-                requestBody = await reader.ReadToEndAsync();
-            }
-            // Reset position for further reading if needed
-            Request.Body.Position = 0;
-            
-            switch (endpointType)
-            {
-                case EndpointType.SQL:
-                    var data = JsonSerializer.Deserialize<JsonElement>(requestBody);
-                    return await HandleSqlPostRequest(env, endpointName, data);
-                    
-                case EndpointType.Proxy:
-                    return await HandleProxyRequest(env, endpointName, remainingPath, "POST");
-                    
-                case EndpointType.Composite:
-                    // Strip off the "composite/" prefix from the endpoint name if needed
-                    string actualCompositeName = endpointName.Replace("composite/", "");
-                    return await HandleCompositeRequest(env, actualCompositeName, requestBody);
-                    
-                case EndpointType.Webhook:
-                    var webhookData = JsonSerializer.Deserialize<JsonElement>(requestBody);
-                    return await HandleWebhookRequest(env, endpointName, webhookData);
-                    
-                default:
-                    Log.Warning("❌ Unknown endpoint type for {EndpointName}", endpointName);
-                    return NotFound(new { error = $"Endpoint '{endpointName}' not found" });
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "❌ Error processing POST request for {Path}", Request.Path);
-            return Problem(
-                detail: ex.Message, 
-                statusCode: StatusCodes.Status500InternalServerError
-            );
-        }
-    }
-
-    [HttpPut]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> PutAsync(
-        string env,
-        string catchall)
-    {
-        try
-        {
-            // Process the catchall to determine what type of endpoint we're dealing with
-            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
-            
-            Log.Information("🔄 Processing {Type} endpoint: {Name} for PUT", endpointType, endpointName);
-
-            // Check if environment is allowed
-            if (!_environmentSettings.IsEnvironmentAllowed(env))
-            {
-                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
-                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
-            }
-
-            // Read the request body for SQL endpoint
-            if (endpointType == EndpointType.SQL)
-            {
-                string requestBody;
-                using (var reader = new StreamReader(Request.Body))
-                {
-                    requestBody = await reader.ReadToEndAsync();
-                }
-                
-                var data = JsonSerializer.Deserialize<JsonElement>(requestBody);
-                return await HandleSqlPutRequest(env, endpointName, data);
-            }
-            else if (endpointType == EndpointType.Proxy)
-            {
-                return await HandleProxyRequest(env, endpointName, remainingPath, "PUT");
-            }
-            else
-            {
-                // Composite and Webhook endpoints don't support PUT
-                Log.Warning("❌ {Type} endpoints don't support PUT requests", endpointType);
-                return StatusCode(405, new { error = $"Method not allowed for {endpointType} endpoints" });
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "❌ Error processing PUT request for {Path}", Request.Path);
-            return Problem(
-                detail: ex.Message, 
-                statusCode: StatusCodes.Status500InternalServerError
-            );
-        }
-    }
-
-    [HttpDelete]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> DeleteAsync(
-        string env,
-        string catchall,
-        [FromQuery] string? id = null)
-    {
-        try
-        {
-            // Process the catchall to determine what type of endpoint we're dealing with
-            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
-            
-            Log.Information("🔄 Processing {Type} endpoint: {Name} for DELETE", endpointType, endpointName);
-
-            // Check if environment is allowed
-            if (!_environmentSettings.IsEnvironmentAllowed(env))
-            {
-                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
-                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
-            }
-
-            switch (endpointType)
-            {
-                case EndpointType.SQL:
-                    // Ensure ID is provided for SQL DELETE
-                    if (string.IsNullOrEmpty(id))
-                    {
-                        return BadRequest(new { 
-                            error = "ID parameter is required for delete operations", 
-                            success = false 
-                        });
-                    }
-                    
-                    return await HandleSqlDeleteRequest(env, endpointName, id);
-                    
-                case EndpointType.Proxy:
-                    return await HandleProxyRequest(env, endpointName, remainingPath, "DELETE");
-                    
-                case EndpointType.Composite:
-                case EndpointType.Webhook:
-                    Log.Warning("❌ {Type} endpoints don't support DELETE requests", endpointType);
-                    return StatusCode(405, new { error = $"Method not allowed for {endpointType} endpoints" });
-                    
-                default:
-                    Log.Warning("❌ Unknown endpoint type for {EndpointName}", endpointName);
-                    return NotFound(new { error = $"Endpoint '{endpointName}' not found" });
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "❌ Error processing DELETE request for {Path}", Request.Path);
-            return Problem(
-                detail: ex.Message, 
-                statusCode: StatusCodes.Status500InternalServerError
-            );
-        }
-    }
-
-    [HttpPatch]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> PatchAsync(
-        string env,
-        string catchall)
-    {
-        try
-        {
-            // Process the catchall to determine what type of endpoint we're dealing with
-            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
-            
-            Log.Information("🔄 Processing {Type} endpoint: {Name} for PATCH", endpointType, endpointName);
-
-            // Check if environment is allowed
-            if (!_environmentSettings.IsEnvironmentAllowed(env))
-            {
-                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
-                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
-            }
-
-            // Currently only proxy endpoints support PATCH
-            if (endpointType == EndpointType.Proxy)
-            {
-                return await HandleProxyRequest(env, endpointName, remainingPath, "PATCH");
-            }
-            
-            Log.Warning("❌ {Type} endpoints don't support PATCH requests", endpointType);
-            return StatusCode(405, new { error = $"Method not allowed for {endpointType} endpoints" });
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "❌ Error processing PATCH request for {Path}", Request.Path);
-            return Problem(
-                detail: ex.Message, 
-                statusCode: StatusCodes.Status500InternalServerError
-            );
-        }
-    }
-
-    #region Helper Methods
-
-    /// <summary>
-    /// Parses the catchall segment to determine endpoint type and name
-    /// </summary>
-    private (EndpointType Type, string Name, string RemainingPath) ParseEndpoint(string catchall)
-    {
-        // Default to proxy endpoint type
-        var endpointType = EndpointType.Proxy;
-        
-        // Split catchall into segments
-        var segments = catchall.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length == 0)
-        {
-            return (EndpointType.Standard, string.Empty, string.Empty);
-        }
-        
-        string endpointName = segments[0];
-        string remainingPath = string.Join('/', segments.Skip(1));
-        
-        // Special handling for composite endpoints
-        if (endpointName.Equals("composite", StringComparison.OrdinalIgnoreCase))
-        {
-            // For composite endpoints, the second segment is the actual name
-            if (segments.Length > 1)
-            {
-                endpointName = $"composite/{segments[1]}";
-                remainingPath = string.Join('/', segments.Skip(2));
-            }
-            return (EndpointType.Composite, endpointName, remainingPath);
-        }
-        
-        // Special handling for webhook endpoints
-        if (endpointName.Equals("webhook", StringComparison.OrdinalIgnoreCase))
-        {
-            return (EndpointType.Webhook, remainingPath, string.Empty);
-        }
-        
-        // Check if this is a SQL endpoint
-        var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
-        if (sqlEndpoints.ContainsKey(endpointName))
-        {
-            return (EndpointType.SQL, endpointName, remainingPath);
-        }
-        
-        // Check if this is a proxy endpoint
-        var proxyEndpoints = EndpointHandler.GetEndpoints(
-            Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Proxy")
-        );
-        
-        if (proxyEndpoints.ContainsKey(endpointName))
-        {
-            return (EndpointType.Proxy, endpointName, remainingPath);
-        }
-        
-        // Default to standard endpoint type if not recognized
-        return (EndpointType.Standard, endpointName, remainingPath);
-    }
-
     /// <summary>
     /// Handles SQL GET requests
     /// </summary>
@@ -870,7 +884,7 @@ public class EndpointController : ControllerBase
             throw;
         }
     }
-
+    
     /// <summary>
     /// Handles SQL POST requests (Create)
     /// </summary>

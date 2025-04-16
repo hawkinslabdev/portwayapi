@@ -3,14 +3,6 @@ namespace PortwayApi.Classes;
 using System.Text.Json;
 using Serilog;
 
-public enum EndpointType
-{
-    Standard,
-    Composite,
-    SQL,
-    Private
-}
-
 /// <summary>
 /// Unified endpoint definition that handles all endpoint types
 /// </summary>

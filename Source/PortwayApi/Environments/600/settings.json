@@ -1,6 +1,4 @@
 {
-  "Environment": {
-    "ServerName": "localhost",
-    "ConnectionString": "Server=VM2K22;Database=600;Trusted_Connection=True;Connection Timeout=5;TrustServerCertificate=true;"
-  }  
+  "ServerName": "localhost",
+  "ConnectionString": "Server=VM2K22;Database=600;Trusted_Connection=True;Connection Timeout=5;TrustServerCertificate=true;"
 }

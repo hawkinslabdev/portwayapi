@@ -37,3 +37,39 @@ public class EndpointEntity
     public string Type { get; set; } = "Standard"; // Standard, SQL, Composite
     public CompositeDefinition? CompositeConfig { get; set; }
 }
+
+/// <summary>
+/// Defines the types of endpoints supported by the API
+/// </summary>
+public enum EndpointType
+{
+    /// <summary>
+    /// Standard endpoint (fallback)
+    /// </summary>
+    Standard,
+    
+    /// <summary>
+    /// SQL database endpoint
+    /// </summary>
+    SQL,
+    
+    /// <summary>
+    /// Proxy endpoint to forward requests to another service
+    /// </summary>
+    Proxy,
+    
+    /// <summary>
+    /// Composite endpoint that combines multiple operations
+    /// </summary>
+    Composite,
+    
+    /// <summary>
+    /// Webhook endpoint for receiving external events
+    /// </summary>
+    Webhook,
+    
+    /// <summary>
+    /// Private endpoint (not publicly accessible)
+    /// </summary>
+    Private
+}

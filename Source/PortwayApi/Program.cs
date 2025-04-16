@@ -314,11 +314,9 @@ try
 
    // Map controller routes
    app.MapControllers();
-    app.MapSQLEndpoints();
-    app.MapCompositeEndpoints();
-    app.MapProxyEndpoints();  
-    app.MapWebhookEndpoints();
-    app.MapHealthCheckEndpoints();
+  
+   // Map health check endpoints - these use minimal API approach
+   PortwayApi.Endpoints.HealthCheckEndpointExtensions.MapHealthCheckEndpoints(app);
 
    // Log application URLs
    var urls = app.Urls;

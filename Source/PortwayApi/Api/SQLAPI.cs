@@ -11,6 +11,7 @@ namespace PortwayApi.Api;
 
 [ApiController]
 [Route("api/{env}/{endpointPath}")]
+[ApiExplorerSettings(IgnoreApi = false)]
 public class SQLAPI : ControllerBase
 {
     private readonly IODataToSqlConverter _oDataToSqlConverter;
@@ -25,6 +26,10 @@ public class SQLAPI : ControllerBase
     }
 
     [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> QueryAsync(
         string env,
         string endpointPath,
@@ -39,6 +44,13 @@ public class SQLAPI : ControllerBase
 
         try
         {
+            // Check if this is a SQL endpoint - if not, return 404 to let the catchall handler take over
+            var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+            if (!sqlEndpoints.ContainsKey(endpointPath))
+            {
+                return NotFound();
+            }
+
             // Step 1: Validate environment
             var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
@@ -49,21 +61,14 @@ public class SQLAPI : ControllerBase
                 });
             }
 
-            // Step 2: Validate endpoint
-            var endpointInfo = ValidateAndExtractEndpoint(endpointPath);
-            if (endpointInfo == null)
-            {
-                return NotFound(new { 
-                    error = $"Endpoint '{endpointPath}' not found.", 
-                    success = false 
-                });
-            }
+            // Step 2: Get endpoint configuration 
+            var endpoint = sqlEndpoints[endpointPath];
 
             // Step 3: Extract endpoint details
-            var schema = endpointInfo.DatabaseSchema ?? "dbo";
-            var objectName = endpointInfo.DatabaseObjectName;
-            var allowedColumns = endpointInfo.AllowedColumns ?? new List<string>();
-            var allowedMethods = endpointInfo.Methods ?? new List<string> { "GET" };
+            var schema = endpoint.DatabaseSchema ?? "dbo";
+            var objectName = endpoint.DatabaseObjectName;
+            var allowedColumns = endpoint.AllowedColumns ?? new List<string>();
+            var allowedMethods = endpoint.Methods ?? new List<string> { "GET" };
 
             // Step 4: Check if GET is allowed
             if (!allowedMethods.Contains("GET"))
@@ -156,6 +161,10 @@ public class SQLAPI : ControllerBase
     }
 
     [HttpPost]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> InsertAsync(
         string env,
         string endpointPath,
@@ -163,6 +172,13 @@ public class SQLAPI : ControllerBase
     {
         try
         {
+            // Check if this is a SQL endpoint - if not, return 404 to let the catchall handler take over
+            var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+            if (!sqlEndpoints.ContainsKey(endpointPath))
+            {
+                return NotFound();
+            }
+
             // Step 1: Validate environment
             var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
@@ -173,18 +189,11 @@ public class SQLAPI : ControllerBase
                 });
             }
 
-            // Step 2: Validate endpoint
-            var endpointInfo = ValidateAndExtractEndpoint(endpointPath);
-            if (endpointInfo == null)
-            {
-                return NotFound(new { 
-                    error = $"Endpoint '{endpointPath}' not found.", 
-                    success = false 
-                });
-            }
+            // Step 2: Get endpoint configuration
+            var endpoint = sqlEndpoints[endpointPath];
 
             // Step 3: Check if the endpoint supports POST and has a procedure defined
-            if (!(endpointInfo.Methods?.Contains("POST") ?? false))
+            if (!(endpoint.Methods?.Contains("POST") ?? false))
             {
                 return StatusCode(405, new { 
                     error = "Method not allowed",
@@ -192,7 +201,7 @@ public class SQLAPI : ControllerBase
                 });
             }
 
-            if (string.IsNullOrEmpty(endpointInfo.Procedure))
+            if (string.IsNullOrEmpty(endpoint.Procedure))
             {
                 return BadRequest(new { 
                     error = "This endpoint does not support insert operations (no procedure defined)", 
@@ -224,11 +233,11 @@ public class SQLAPI : ControllerBase
             
             // Parse procedure name properly
             string schema = "dbo";
-            string procedureName = endpointInfo.Procedure;
+            string procedureName = endpoint.Procedure;
             
-            if (endpointInfo.Procedure.Contains("."))
+            if (endpoint.Procedure.Contains("."))
             {
-                var parts = endpointInfo.Procedure.Split('.');
+                var parts = endpoint.Procedure.Split('.');
                 schema = parts[0].Trim('[', ']');
                 procedureName = parts[1].Trim('[', ']');
             }
@@ -262,6 +271,10 @@ public class SQLAPI : ControllerBase
     }
 
     [HttpPut]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> UpdateAsync(
         string env,
         string endpointPath,
@@ -269,6 +282,13 @@ public class SQLAPI : ControllerBase
     {
         try
         {
+            // Check if this is a SQL endpoint - if not, return 404 to let the catchall handler take over
+            var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+            if (!sqlEndpoints.ContainsKey(endpointPath))
+            {
+                return NotFound();
+            }
+
             // Step 1: Validate environment
             var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
@@ -279,18 +299,11 @@ public class SQLAPI : ControllerBase
                 });
             }
 
-            // Step 2: Validate endpoint
-            var endpointInfo = ValidateAndExtractEndpoint(endpointPath);
-            if (endpointInfo == null)
-            {
-                return NotFound(new { 
-                    error = $"Endpoint '{endpointPath}' not found.", 
-                    success = false 
-                });
-            }
+            // Step 2: Get endpoint configuration
+            var endpoint = sqlEndpoints[endpointPath];
 
             // Step 3: Check if the endpoint supports PUT and has a procedure defined
-            if (!(endpointInfo.Methods?.Contains("PUT") ?? false))
+            if (!(endpoint.Methods?.Contains("PUT") ?? false))
             {
                 return StatusCode(405, new { 
                     error = "Method not allowed",
@@ -298,7 +311,7 @@ public class SQLAPI : ControllerBase
                 });
             }
 
-            if (string.IsNullOrEmpty(endpointInfo.Procedure))
+            if (string.IsNullOrEmpty(endpoint.Procedure))
             {
                 return BadRequest(new { 
                     error = "This endpoint does not support update operations (no procedure defined)", 
@@ -341,11 +354,11 @@ public class SQLAPI : ControllerBase
             
             // Parse procedure name properly
             string schema = "dbo";
-            string procedureName = endpointInfo.Procedure;
+            string procedureName = endpoint.Procedure;
             
-            if (endpointInfo.Procedure.Contains("."))
+            if (endpoint.Procedure.Contains("."))
             {
-                var parts = endpointInfo.Procedure.Split('.');
+                var parts = endpoint.Procedure.Split('.');
                 schema = parts[0].Trim('[', ']');
                 procedureName = parts[1].Trim('[', ']');
             }
@@ -379,6 +392,10 @@ public class SQLAPI : ControllerBase
     }
 
     [HttpDelete]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> DeleteAsync(
         string env,
         string endpointPath,
@@ -386,6 +403,13 @@ public class SQLAPI : ControllerBase
     {
         try
         {
+            // Check if this is a SQL endpoint - if not, return 404 to let the catchall handler take over
+            var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+            if (!sqlEndpoints.ContainsKey(endpointPath))
+            {
+                return NotFound();
+            }
+
             // Step 1: Validate environment
             var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
@@ -396,18 +420,11 @@ public class SQLAPI : ControllerBase
                 });
             }
 
-            // Step 2: Validate endpoint
-            var endpointInfo = ValidateAndExtractEndpoint(endpointPath);
-            if (endpointInfo == null)
-            {
-                return NotFound(new { 
-                    error = $"Endpoint '{endpointPath}' not found.", 
-                    success = false 
-                });
-            }
+            // Step 2: Get endpoint configuration
+            var endpoint = sqlEndpoints[endpointPath];
 
             // Step 3: Check if the endpoint supports DELETE and has a procedure defined
-            if (!(endpointInfo.Methods?.Contains("DELETE") ?? false))
+            if (!(endpoint.Methods?.Contains("DELETE") ?? false))
             {
                 return StatusCode(405, new { 
                     error = "Method not allowed",
@@ -415,7 +432,7 @@ public class SQLAPI : ControllerBase
                 });
             }
 
-            if (string.IsNullOrEmpty(endpointInfo.Procedure))
+            if (string.IsNullOrEmpty(endpoint.Procedure))
             {
                 return BadRequest(new { 
                     error = "This endpoint does not support delete operations (no procedure defined)", 
@@ -451,11 +468,11 @@ public class SQLAPI : ControllerBase
             
             // Parse procedure name properly
             string schema = "dbo";
-            string procedureName = endpointInfo.Procedure;
+            string procedureName = endpoint.Procedure;
             
-            if (endpointInfo.Procedure.Contains("."))
+            if (endpoint.Procedure.Contains("."))
             {
-                var parts = endpointInfo.Procedure.Split('.');
+                var parts = endpoint.Procedure.Split('.');
                 schema = parts[0].Trim('[', ']');
                 procedureName = parts[1].Trim('[', ']');
             }
@@ -487,22 +504,6 @@ public class SQLAPI : ControllerBase
                 statusCode: StatusCodes.Status500InternalServerError
             );
         }
-    }
-
-    // Helper method to validate and extract endpoint details
-    private EndpointDefinition? ValidateAndExtractEndpoint(string endpointPath)
-    {
-        // Use the existing EndpointHandler to load SQL endpoints
-        var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
-        
-        // Try to find the endpoint by name
-        if (sqlEndpoints.TryGetValue(endpointPath, out var endpointDefinition))
-        {
-            return endpointDefinition;
-        }
-
-        // Endpoint not found
-        return null;
     }
 
     // Helper method to build next link for pagination

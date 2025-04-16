@@ -21,6 +21,8 @@ public static class APIEndpointExtensions
     // SQL Endpoints
     public static WebApplication MapSQLEndpoints(this WebApplication app)
     {
+        // Route pattern is explicitly tied to the configured SQL endpoints
+        // to avoid conflicts with the proxy catchall handler
         app.MapGet("/api/{env}/{endpointPath}", async (
             HttpContext context,
             string env,
@@ -33,21 +35,26 @@ public static class APIEndpointExtensions
             [FromQuery(Name = "$top")] int top = 10,
             [FromQuery(Name = "$skip")] int skip = 0) =>
         {
+            // Route constraint: Only proceed if this is a configured SQL endpoint
+            // Check if the endpoint exists in the SQL endpoints configuration
+            var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+            if (!sqlEndpoints.ContainsKey(endpointPath))
+            {
+                // Not an SQL endpoint - delegate to the next handler
+                return Results.Empty;
+            }
+
             var url = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.Path}{context.Request.QueryString}";
-            Log.Information("📥 Query Request: {Url}", url);
+            Log.Information("📥 SQL Query Request: {Url}", url);
 
             try
             {
                 // Load environment settings
                 var (connectionString, _) = await environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
                 
-                // Validate and get endpoint configuration
-                var endpoint = EndpointHandler.GetSqlEndpoints()
-                    .FirstOrDefault(e => e.Key.Equals(endpointPath, StringComparison.OrdinalIgnoreCase)).Value;
+                // Get endpoint configuration
+                var endpoint = sqlEndpoints[endpointPath];
                 
-                if (endpoint == null)
-                    return Results.NotFound(new { error = $"Endpoint '{endpointPath}' not found" });
-
                 // Validate allowed methods
                 if (!(endpoint.Methods?.Contains("GET") ?? false))
                     return Results.StatusCode(405);
@@ -122,22 +129,23 @@ public static class APIEndpointExtensions
                         : BuildNextLink(env, endpointPath, select, filter, orderby, top, skip)
                 };
 
+                // Mark this request as handled to prevent proxy processing
+                context.Items["EndpointHandled"] = true;
+
                 return Results.Ok(response);
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error processing query for {Endpoint}", endpointPath);
+                Log.Error(ex, "Error processing SQL query for {Endpoint}", endpointPath);
                 return Results.Problem(
                     detail: ex.Message, 
                     statusCode: StatusCodes.Status500InternalServerError
                 );
             }
         })
-        .WithName("QueryRecords");
+        .WithName("QuerySqlRecords");
 
-        // The rest of the APIEndpointExtensions implementation...
-        // (Post, Put, Delete methods follow the same pattern)
-
+        // SQL POST endpoint (Create)
         app.MapPost("/api/{env}/{endpointPath}", async (
             HttpContext context,
             string env,
@@ -145,18 +153,22 @@ public static class APIEndpointExtensions
             [FromBody] JsonElement data,
             [FromServices] IEnvironmentSettingsProvider environmentSettingsProvider) =>
         {
+            // Route constraint: Only proceed if this is a configured SQL endpoint
+            var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+            if (!sqlEndpoints.ContainsKey(endpointPath))
+            {
+                // Not an SQL endpoint - delegate to the next handler
+                return Results.Empty;
+            }
+
             try
             {
                 // Load environment settings
                 var (connectionString, _) = await environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
                 
-                // Validate and get endpoint configuration
-                var endpoint = EndpointHandler.GetSqlEndpoints()
-                    .FirstOrDefault(e => e.Key.Equals(endpointPath, StringComparison.OrdinalIgnoreCase)).Value;
+                // Get endpoint configuration
+                var endpoint = sqlEndpoints[endpointPath];
                 
-                if (endpoint == null)
-                    return Results.NotFound(new { error = $"Endpoint '{endpointPath}' not found" });
-
                 // Check if POST is allowed and procedure is configured
                 if (!(endpoint.Methods?.Contains("POST") ?? false) || 
                     string.IsNullOrEmpty(endpoint.Procedure))
@@ -168,6 +180,12 @@ public static class APIEndpointExtensions
                 // Add method parameter
                 dynamicParams.Add("@Method", "INSERT");
 
+                // Add user parameter if available
+                if (context.User?.Identity?.Name != null)
+                {
+                    dynamicParams.Add("@UserName", context.User.Identity.Name);
+                }
+
                 // Add data parameters from the request
                 foreach (var property in data.EnumerateObject())
                 {
@@ -189,6 +207,9 @@ public static class APIEndpointExtensions
                     commandType: CommandType.StoredProcedure
                 );
 
+                // Mark this request as handled to prevent proxy processing
+                context.Items["EndpointHandled"] = true;
+
                 return Results.Ok(new { 
                     message = "Record inserted successfully", 
                     result = result.FirstOrDefault() 
@@ -196,15 +217,16 @@ public static class APIEndpointExtensions
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error processing insert for {Endpoint}", endpointPath);
+                Log.Error(ex, "Error processing SQL insert for {Endpoint}", endpointPath);
                 return Results.Problem(
                     detail: ex.Message, 
                     statusCode: StatusCodes.Status500InternalServerError
                 );
             }
         })
-        .WithName("InsertRecord");
+        .WithName("InsertSqlRecord");
 
+        // SQL PUT endpoint (Update)
         app.MapPut("/api/{env}/{endpointPath}", async (
             HttpContext context,
             string env,
@@ -212,18 +234,22 @@ public static class APIEndpointExtensions
             [FromBody] JsonElement data,
             [FromServices] IEnvironmentSettingsProvider environmentSettingsProvider) =>
         {
+            // Route constraint: Only proceed if this is a configured SQL endpoint
+            var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+            if (!sqlEndpoints.ContainsKey(endpointPath))
+            {
+                // Not an SQL endpoint - delegate to the next handler
+                return Results.Empty;
+            }
+
             try
             {
                 // Load environment settings
                 var (connectionString, _) = await environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
                 
-                // Validate and get endpoint configuration
-                var endpoint = EndpointHandler.GetSqlEndpoints()
-                    .FirstOrDefault(e => e.Key.Equals(endpointPath, StringComparison.OrdinalIgnoreCase)).Value;
+                // Get endpoint configuration
+                var endpoint = sqlEndpoints[endpointPath];
                 
-                if (endpoint == null)
-                    return Results.NotFound(new { error = $"Endpoint '{endpointPath}' not found" });
-
                 // Check if PUT is allowed and procedure is configured
                 if (!(endpoint.Methods?.Contains("PUT") ?? false) || 
                     string.IsNullOrEmpty(endpoint.Procedure))
@@ -235,6 +261,12 @@ public static class APIEndpointExtensions
                 // Add method parameter
                 dynamicParams.Add("@Method", "UPDATE");
 
+                // Add user parameter if available
+                if (context.User?.Identity?.Name != null)
+                {
+                    dynamicParams.Add("@UserName", context.User.Identity.Name);
+                }
+
                 // Add data parameters from the request
                 foreach (var property in data.EnumerateObject())
                 {
@@ -256,6 +288,9 @@ public static class APIEndpointExtensions
                     commandType: CommandType.StoredProcedure
                 );
 
+                // Mark this request as handled to prevent proxy processing
+                context.Items["EndpointHandled"] = true;
+
                 return Results.Ok(new { 
                     message = "Record updated successfully", 
                     result = result.FirstOrDefault() 
@@ -263,15 +298,16 @@ public static class APIEndpointExtensions
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error processing update for {Endpoint}", endpointPath);
+                Log.Error(ex, "Error processing SQL update for {Endpoint}", endpointPath);
                 return Results.Problem(
                     detail: ex.Message, 
                     statusCode: StatusCodes.Status500InternalServerError
                 );
             }
         })
-        .WithName("UpdateRecord");
+        .WithName("UpdateSqlRecord");
 
+        // SQL DELETE endpoint
         app.MapDelete("/api/{env}/{endpointPath}", async (
             HttpContext context,
             string env,
@@ -279,18 +315,22 @@ public static class APIEndpointExtensions
             [FromQuery] string id,
             [FromServices] IEnvironmentSettingsProvider environmentSettingsProvider) =>
         {
+            // Route constraint: Only proceed if this is a configured SQL endpoint
+            var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+            if (!sqlEndpoints.ContainsKey(endpointPath))
+            {
+                // Not an SQL endpoint - delegate to the next handler
+                return Results.Empty;
+            }
+
             try
             {
                 // Load environment settings
                 var (connectionString, _) = await environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
                 
-                // Validate and get endpoint configuration
-                var endpoint = EndpointHandler.GetSqlEndpoints()
-                    .FirstOrDefault(e => e.Key.Equals(endpointPath, StringComparison.OrdinalIgnoreCase)).Value;
+                // Get endpoint configuration
+                var endpoint = sqlEndpoints[endpointPath];
                 
-                if (endpoint == null)
-                    return Results.NotFound(new { error = $"Endpoint '{endpointPath}' not found" });
-
                 // Check if DELETE is allowed and procedure is configured
                 if (!(endpoint.Methods?.Contains("DELETE") ?? false) || 
                     string.IsNullOrEmpty(endpoint.Procedure))
@@ -303,6 +343,12 @@ public static class APIEndpointExtensions
                 dynamicParams.Add("@Method", "DELETE");
                 dynamicParams.Add("@id", id);
 
+                // Add user parameter if available
+                if (context.User?.Identity?.Name != null)
+                {
+                    dynamicParams.Add("@UserName", context.User.Identity.Name);
+                }
+
                 // Execute stored procedure
                 using var connection = new SqlConnection(connectionString);
                 await connection.OpenAsync();
@@ -318,21 +364,25 @@ public static class APIEndpointExtensions
                     commandType: CommandType.StoredProcedure
                 );
 
+                // Mark this request as handled to prevent proxy processing
+                context.Items["EndpointHandled"] = true;
+
                 return Results.Ok(new { 
                     message = "Record deleted successfully", 
+                    id = id,
                     result = result.FirstOrDefault() 
                 });
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "Error processing delete for {Endpoint}", endpointPath);
+                Log.Error(ex, "Error processing SQL delete for {Endpoint}", endpointPath);
                 return Results.Problem(
                     detail: ex.Message, 
                     statusCode: StatusCodes.Status500InternalServerError
                 );
             }
         })
-        .WithName("DeleteRecord");
+        .WithName("DeleteSqlRecord");
 
         return app;
     }
@@ -388,6 +438,10 @@ public static class APIEndpointExtensions
             [FromServices] UrlValidator urlValidator,
             [FromServices] EnvironmentSettings environmentSettings) =>
         {
+            // Skip processing if this request has already been handled
+            if (context.Response.HasStarted || context.Items.ContainsKey("EndpointHandled"))
+                return Results.Empty;
+
             Log.Information("🌍 Received proxy request: {Path} {Method}", context.Request.Path, context.Request.Method);
 
             try
@@ -418,6 +472,9 @@ public static class APIEndpointExtensions
                 // Find the endpoint configuration
                 if (!proxyEndpoints.TryGetValue(endpointName, out var endpointConfig))
                 {
+                    // Mark that we attempted to handle this endpoint
+                    context.Items["EndpointHandled"] = true;
+                    
                     Log.Warning("❌ Endpoint not found: {EndpointName}", endpointName);
                     return Results.NotFound(new { error = $"Endpoint '{endpointName}' not found" });
                 }
@@ -434,6 +491,9 @@ public static class APIEndpointExtensions
                 var queryString = context.Request.QueryString.Value ?? "";
                 var encodedPath = Uri.EscapeDataString(remainingPath);
                 var fullUrl = $"{endpointConfig.Url}{(string.IsNullOrEmpty(remainingPath) ? "" : $"/{encodedPath}")}{queryString}";
+
+                // Store the target URL in the context items for logging
+                context.Items["TargetUrl"] = fullUrl;
 
                 // Validate URL safety
                 if (!urlValidator.IsUrlSafe(fullUrl))
@@ -461,6 +521,12 @@ public static class APIEndpointExtensions
                     await context.Request.Body.CopyToAsync(memoryStream);
                     memoryStream.Position = 0;
                     requestMessage.Content = new StreamContent(memoryStream);
+
+                    // Copy content type header if present
+                    if (context.Request.ContentType != null)
+                    {
+                        requestMessage.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(context.Request.ContentType);
+                    }
                 }
 
                 // Copy headers
@@ -473,6 +539,9 @@ public static class APIEndpointExtensions
 
                     try
                     {
+                        if (header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
+                            continue; // Already handled for request content
+
                         requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
                     }
                     catch (Exception ex)
@@ -511,7 +580,7 @@ public static class APIEndpointExtensions
                     ? await response.Content.ReadAsStringAsync()
                     : string.Empty;
 
-                // URL rewriting - using the UrlRewriter helper instead of UrlHelper
+                // URL rewriting - using the UrlRewriter helper
                 var rewrittenContent = UrlRewriter.RewriteUrl(
                     originalContent, 
                     endpointConfig.Url, 
@@ -526,6 +595,8 @@ public static class APIEndpointExtensions
                 Log.Information("✅ Proxy request completed: {Method} {Path} -> {StatusCode}", 
                     context.Request.Method, context.Request.Path, response.StatusCode);
 
+                // Mark that we handled this endpoint
+                context.Items["EndpointHandled"] = true;
                 return Results.Empty;
             }
             catch (Exception ex)
@@ -551,6 +622,9 @@ public static class APIEndpointExtensions
             [FromServices] CompositeEndpointHandler compositeHandler,
             [FromServices] EnvironmentSettings environmentSettings) =>
         {
+            // Mark that this is a special endpoint type
+            context.Items["EndpointType"] = "Composite";
+
             Log.Information("🧩 Received composite request: {Path} {Method}", 
                 context.Request.Path, context.Request.Method);
 
@@ -571,7 +645,12 @@ public static class APIEndpointExtensions
                 }
                 
                 // Process the composite endpoint
-                return await compositeHandler.ProcessCompositeEndpointAsync(context, env, endpointName, requestBody);
+                var result = await compositeHandler.ProcessCompositeEndpointAsync(context, env, endpointName, requestBody);
+                
+                // Mark that we handled this endpoint
+                context.Items["EndpointHandled"] = true;
+                
+                return result;
             }
             catch (Exception ex)
             {

@@ -1,11 +1,13 @@
 using System.IO.Compression;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using SqlKata.Compilers;
+using PortwayApi.Api;
 using PortwayApi.Auth;
 using PortwayApi.Classes;
 using PortwayApi.Endpoints;
@@ -42,8 +44,8 @@ Log.Logger = new LoggerConfiguration()
         logEvent.Properties["RequestPath"].ToString().Contains("/index.html")))
    .CreateLogger();
 
-    LogApplicationStartup();
-    Log.Information("🔍 Logging initialized successfully");
+LogApplicationStartup();
+Log.Information("🔍 Logging initialized successfully");
 
 try
 {
@@ -125,6 +127,12 @@ try
    builder.Services.AddAuthorization();
    builder.Services.AddHostedService<LogFlusher>();
 
+   // Register route constraint for ProxyConstraint
+   builder.Services.Configure<RouteOptions>(options =>
+   {
+       options.ConstraintMap.Add("proxy", typeof(ProxyConstraintAttribute));
+   });
+
    // Configure HTTP client
    builder.Services.AddHttpClient("ProxyClient")
        .ConfigurePrimaryHttpMessageHandler(() =>
@@ -141,10 +149,10 @@ try
    builder.Services.AddSingleton<EnvironmentSettings>();
 
    // Register OData SQL services
-    builder.Services.AddSingleton<IHostedService, StartupLogger>();
-    builder.Services.AddSingleton<IEdmModelBuilder, EdmModelBuilder>();
-    builder.Services.AddSingleton<Compiler, SqlServerCompiler>();
-    builder.Services.AddSingleton<IODataToSqlConverter, ODataToSqlConverter>();
+   builder.Services.AddSingleton<IHostedService, StartupLogger>();
+   builder.Services.AddSingleton<IEdmModelBuilder, EdmModelBuilder>();
+   builder.Services.AddSingleton<Compiler, SqlServerCompiler>();
+   builder.Services.AddSingleton<IODataToSqlConverter, ODataToSqlConverter>();
 
    // Initialize endpoints directories
    EnsureDirectoryStructure();
@@ -218,14 +226,6 @@ try
    app.UseSecurityHeaders();
    app.UseProxyTrafficLogging();
    
-   // Simple rate limiting implementation
-   app.Use(async (context, next) =>
-   {
-       // Simple rate limiting implementation
-       // This is a placeholder for the missing UseRequestThrottling extension
-       await next();
-   });
-   
    app.UseDefaultFiles(new DefaultFilesOptions
    {
        DefaultFileNames = new List<string> { "index.html" }
@@ -298,59 +298,8 @@ try
        Log.Information($"📊 SQL Endpoint: {endpoint.Key}; Object: {endpoint.Value.DatabaseSchema}.{endpoint.Value.DatabaseObjectName}");
    }
 
-   // Authentication middleware
-   app.Use(async (context, next) =>
-   {
-       var path = context.Request.Path.Value?.ToLowerInvariant();
-       
-       // Skip token validation for specific routes
-       if (path?.StartsWith("/swagger") == true || 
-           path == "/" ||
-           path == "/index.html" ||
-           path?.StartsWith("/health") == true ||
-           context.Request.Path.StartsWithSegments("/favicon.ico"))
-       {
-           await next();
-           return;
-       }
-       
-       // Continue with authentication logic
-       Log.Debug("🔀 Incoming request: {Path}", context.Request.Path);
-
-       if (!context.Request.Headers.TryGetValue("Authorization", out var providedToken))
-       {
-           Log.Warning("❌ Authorization header missing.");
-           context.Response.StatusCode = 401;
-           await context.Response.WriteAsJsonAsync(new { error = "Unauthorized" });
-           return;
-       }
-
-       string tokenString = providedToken.ToString();
-       
-       // Extract the token from "Bearer token"
-       if (tokenString.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-       {
-           tokenString = tokenString.Substring("Bearer ".Length).Trim();
-       }
-
-       using var scope = app.Services.CreateScope();
-       var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
-
-       // Validate token
-       bool isValid = await tokenService.VerifyTokenAsync(tokenString);
-
-       if (!isValid)
-       {
-           Log.Warning("❌ Invalid token provided");
-           context.Response.StatusCode = 403;
-           await context.Response.WriteAsJsonAsync(new { error = "Forbidden" });
-           return;
-       }
-
-       Log.Information("✅ Authorized request with valid token");
-       await next();
-   });
-
+   // Use Token Authentication middleware
+   app.UseTokenAuthentication();
    app.UseAuthorization();
    app.UseForwardedHeaders(new ForwardedHeadersOptions
    {
@@ -359,13 +308,13 @@ try
 
    // Map controller routes
    app.MapControllers();
-
-   // Register all endpoints from dedicated endpoint classes
-   app.MapSQLEndpoints();
-   app.MapProxyEndpoints();
-   app.MapCompositeEndpoints();
+   
+   // Map webhook and health endpoints
    app.MapWebhookEndpoints();
    app.MapHealthCheckEndpoints();
+   
+   // Map composite endpoints for special handling that doesn't conflict with controllers
+   app.MapCompositeEndpoints();
 
    // Log application URLs
    var urls = app.Urls;
@@ -444,5 +393,4 @@ void LogApplicationStartup()
     logo.AppendLine(@"                                     |___/ ");
     logo.AppendLine(@"");
     Log.Information(logo.ToString());
-
 }

@@ -267,6 +267,12 @@ try
        }
    }
 
+    app.Use(async (context, next) => {
+        Log.Information("📥 Incoming request: {Method} {Path}", context.Request.Method, context.Request.Path);
+        await next();
+        Log.Information("📤 Outgoing response: {StatusCode} for {Path}", context.Response.StatusCode, context.Request.Path);
+    });
+
    // Get environment settings services
    var environmentSettings = app.Services.GetRequiredService<EnvironmentSettings>();
    var sqlEnvironmentProvider = app.Services.GetRequiredService<IEnvironmentSettingsProvider>();
@@ -308,13 +314,11 @@ try
 
    // Map controller routes
    app.MapControllers();
-   
-   // Map webhook and health endpoints
-   app.MapWebhookEndpoints();
-   app.MapHealthCheckEndpoints();
-   
-   // Map composite endpoints for special handling that doesn't conflict with controllers
-   app.MapCompositeEndpoints();
+    app.MapSQLEndpoints();
+    app.MapCompositeEndpoints();
+    app.MapProxyEndpoints();  
+    app.MapWebhookEndpoints();
+    app.MapHealthCheckEndpoints();
 
    // Log application URLs
    var urls = app.Urls;

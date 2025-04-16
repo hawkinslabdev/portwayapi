@@ -11,7 +11,7 @@ namespace PortwayApi.Api;
 [ApiController]
 [Route("api/{env}/{**catchall}")]
 [ApiExplorerSettings(IgnoreApi = false)]
-[ProxyConstraint] // Custom constraint to avoid routing conflicts
+//[ProxyConstraint] // Custom constraint to avoid routing conflicts
 public class ProxyAPI : ControllerBase
 {
     private readonly IHttpClientFactory _httpClientFactory;

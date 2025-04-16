@@ -40,7 +40,8 @@ public static class APIEndpointExtensions
             var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
             if (!sqlEndpoints.ContainsKey(endpointPath))
             {
-                // Not an SQL endpoint - delegate to the next handler
+                // Not an SQL endpoint - set a flag for the next handler
+                context.Items["NotSqlEndpoint"] = true;
                 return Results.Empty;
             }
 
@@ -439,7 +440,7 @@ public static class APIEndpointExtensions
             [FromServices] EnvironmentSettings environmentSettings) =>
         {
             // Skip processing if this request has already been handled
-            if (context.Response.HasStarted || context.Items.ContainsKey("EndpointHandled"))
+            if (context.Response.HasStarted || !context.Items.ContainsKey("NotSqlEndpoint"))
                 return Results.Empty;
 
             Log.Information("🌍 Received proxy request: {Path} {Method}", context.Request.Path, context.Request.Method);

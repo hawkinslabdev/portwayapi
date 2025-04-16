@@ -39,6 +39,7 @@ public static class EndpointHandler
     // Cache for loaded endpoints to avoid multiple loads
     private static Dictionary<string, EndpointDefinition>? _loadedProxyEndpoints = null;
     private static Dictionary<string, EndpointDefinition>? _loadedSqlEndpoints = null;
+    private static Dictionary<string, EndpointDefinition>? _loadedSqlWebhookEndpoints = null;
     private static readonly object _loadLock = new object();
     
     /// <summary>
@@ -49,6 +50,13 @@ public static class EndpointHandler
         string sqlEndpointsDirectory = Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "SQL");
         LoadSqlEndpointsIfNeeded(sqlEndpointsDirectory);
         return _loadedSqlEndpoints!;
+    }
+
+        public static Dictionary<string, EndpointDefinition> GetSqlWebhookEndpoints()
+    {
+        string sqlWebhookEndpointsDirectory = Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Webhooks");
+        LoadSqlWebhookEndpointsIfNeeded(sqlWebhookEndpointsDirectory);
+        return _loadedSqlWebhookEndpoints!;
     }
     
     /// <summary>
@@ -139,6 +147,24 @@ public static class EndpointHandler
                 if (_loadedSqlEndpoints == null)
                 {
                     _loadedSqlEndpoints = LoadSqlEndpoints(endpointsDirectory);
+                }
+            }
+        }
+    }
+
+        /// <summary>
+    /// Internal method to load SQL endpoints if they haven't been loaded yet
+    /// </summary>
+    private static void LoadSqlWebhookEndpointsIfNeeded(string endpointsDirectory)
+    {
+        // Use double-check locking pattern to ensure thread safety
+        if (_loadedSqlWebhookEndpoints == null)
+        {
+            lock (_loadLock)
+            {
+                if (_loadedSqlWebhookEndpoints == null)
+                {
+                    _loadedSqlWebhookEndpoints = LoadSqlWebhookEndpoints(endpointsDirectory);
                 }
             }
         }
@@ -265,6 +291,69 @@ public static class EndpointHandler
         catch (Exception ex)
         {
             Log.Error(ex, "❌ Error scanning SQL endpoints directory: {Directory}", endpointsDirectory);
+        }
+
+        return endpoints;
+    }
+
+    /// <summary>
+    /// Internal method to load all SQL webhook endpoints from the endpoints directory
+    /// </summary>
+    private static Dictionary<string, EndpointDefinition> LoadSqlWebhookEndpoints(string endpointsDirectory)
+    {
+        var endpoints = new Dictionary<string, EndpointDefinition>(StringComparer.OrdinalIgnoreCase);
+        
+        try
+        {
+            if (!Directory.Exists(endpointsDirectory))
+            {
+                Log.Warning($"⚠️ SQL Webhook endpoints directory not found: {endpointsDirectory}");
+                Directory.CreateDirectory(endpointsDirectory);
+                return endpoints;
+            }
+
+            // Get all JSON files in the endpoints directory and subdirectories
+            foreach (var file in Directory.GetFiles(endpointsDirectory, "*.json", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    // Read and parse the endpoint definition
+                    var json = File.ReadAllText(file);
+                    var definition = ParseSqlEndpointDefinition(json);
+                    
+                    if (definition != null && !string.IsNullOrWhiteSpace(definition.DatabaseObjectName))
+                    {
+                        // Extract endpoint name from directory name
+                        var endpointName = Path.GetFileName(Path.GetDirectoryName(file)) ?? "";
+                        
+                        // Skip if no valid name could be extracted
+                        if (string.IsNullOrWhiteSpace(endpointName))
+                        {
+                            Log.Warning("⚠️ Could not determine endpoint name for {File}", file);
+                            continue;
+                        }
+
+                        // Add the endpoint to the dictionary
+                        endpoints[endpointName] = definition;
+                        
+                        Log.Information($"📊 SQL Webhook Endpoint: {endpointName}; Object: {definition.DatabaseSchema}.{definition.DatabaseObjectName}");
+                    }
+                    else
+                    {
+                        Log.Warning("⚠️ Failed to load SQL webhook endpoint from {File}", file);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "❌ Error parsing SQL webhook endpoint file: {File}", file);
+                }
+            }
+
+            Log.Information($"✅ Loaded {endpoints.Count} webhook endpoints from {endpointsDirectory}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error scanning SQL webhook endpoints directory: {Directory}", endpointsDirectory);
         }
 
         return endpoints;

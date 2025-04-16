@@ -355,7 +355,7 @@ public class EndpointController : ControllerBase
             }
 
             // Load webhook endpoint configuration
-            var endpointConfig = EndpointHandler.GetSqlEndpoints()
+            var endpointConfig = EndpointHandler.GetSqlWebhookEndpoints()
                 .FirstOrDefault(e => e.Key.Equals("Webhooks", StringComparison.OrdinalIgnoreCase)).Value;
 
             if (endpointConfig == null)

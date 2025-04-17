@@ -17,6 +17,7 @@ using PortwayApi.Middleware;
 using PortwayApi.Services;
 using System.Text;
 using System.Text.Json;
+using Microsoft.OpenApi.Models;
 
 // Create log directory
 Directory.CreateDirectory("log");
@@ -219,8 +220,7 @@ try
     builder.Services.AddSingleton<DynamicEndpointDocumentFilter>();
     builder.Services.AddSingleton<DynamicEndpointOperationFilter>();
     builder.Services.AddSingleton<CompositeEndpointDocumentFilter>();
-    builder.Services.AddSingleton<SwaggerCatchAllParameterFilter>();
-    builder.Services.AddSingleton<SwaggerOperationFilter>();
+    builder.Services.AddSingleton<ComplexParameterFilter>();
 
     // Build the application
     var app = builder.Build();
@@ -238,8 +238,42 @@ try
     app.UseStaticFiles();
 
     // Configure Swagger UI
-    SwaggerConfiguration.ConfigureSwaggerUI(app, swaggerSettings);
+    app.UseSwagger(options => {
+        // This ensures you get detailed error information
+        options.PreSerializeFilters.Add((swagger, httpReq) => {
+            swagger.Servers = new List<OpenApiServer>
+            {
+                new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host}{httpReq.PathBase}" }
+            };
+        });
+    });
 
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", $"{swaggerSettings.Title} {swaggerSettings.Version}");
+        c.RoutePrefix = swaggerSettings.RoutePrefix ?? "swagger";
+        
+        // Set doc expansion with fallback
+        var docExpansion = SwaggerConfiguration.ParseEnum<Swashbuckle.AspNetCore.SwaggerUI.DocExpansion>(
+            swaggerSettings.DocExpansion, 
+            Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
+        c.DocExpansion(docExpansion);
+        
+        // Apply other settings
+        c.DefaultModelsExpandDepth(swaggerSettings.DefaultModelsExpandDepth);
+        
+        if (swaggerSettings.DisplayRequestDuration)
+            c.DisplayRequestDuration();
+            
+        if (swaggerSettings.EnableFilter)
+            c.EnableFilter();
+            
+        if (swaggerSettings.EnableDeepLinking)
+            c.EnableDeepLinking();
+            
+        if (swaggerSettings.EnableValidator)
+            c.EnableValidator();
+    });
     // Initialize Database & Create Default Token if needed
     using (var scope = app.Services.CreateScope())
     {

@@ -132,25 +132,38 @@ public static class SwaggerConfiguration
                     }
                 });
                 
-                // Add custom document and operation filters
-                c.DocumentFilter<SwaggerDocumentFilter>(); // General document filter for cleaning up routes
-                c.DocumentFilter<SwaggerCatchAllParameterFilter>(); // Handle catch-all parameters
-                c.DocumentFilter<DynamicEndpointDocumentFilter>(); // Dynamic endpoints
-                c.OperationFilter<SwaggerOperationFilter>(); // Add security to operations
-                c.OperationFilter<DynamicEndpointOperationFilter>(); // Add dynamic endpoint operations
-                c.DocumentFilter<CompositeEndpointDocumentFilter>(); // Handle composite endpoints
+                // Important fix: Handle complex parameters in the EndpointController
+                c.ParameterFilter<ComplexParameterFilter>();
                 
-                // This is critical for handling conflicts
-                c.CustomOperationIds(apiDesc => 
-                    $"{apiDesc.HttpMethod?.ToLowerInvariant() ?? "get"}_{apiDesc.RelativePath?.Replace("/", "_").Replace("{", "").Replace("}", "")}");
+                // Important: Ignore controller actions to use document filters instead
+                c.DocInclusionPredicate((docName, apiDesc) =>
+                {
+                    if (apiDesc.ActionDescriptor.RouteValues.TryGetValue("controller", out var controller))
+                    {
+                        if (controller == "Endpoint")
+                        {
+                            return false; // Exclude the controller, we'll add endpoints manually
+                        }
+                    }
+                    return true; // Include all other controllers
+                });
                 
-                // This is important for resolving any conflicting routes
+                // Add filters in the correct order
+                c.DocumentFilter<DynamicEndpointDocumentFilter>();
+                c.DocumentFilter<CompositeEndpointDocumentFilter>();
+                c.OperationFilter<DynamicEndpointOperationFilter>();
+                
+                // Add this line to resolve conflicting actions
                 c.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
             });
 
+            // Register the parameter filter for complex parameters
+            builder.Services.AddSingleton<ComplexParameterFilter>();
+            
+            // Register the document filters
             builder.Services.AddSingleton<DynamicEndpointDocumentFilter>();
-            builder.Services.AddSingleton<DynamicEndpointOperationFilter>();
             builder.Services.AddSingleton<CompositeEndpointDocumentFilter>();
+            builder.Services.AddSingleton<DynamicEndpointOperationFilter>();
             
             Log.Information("✅ Swagger services registered successfully");
         }
@@ -167,13 +180,10 @@ public static class SwaggerConfiguration
         if (!swaggerSettings.Enabled)
             return;
             
-        app.UseSwagger(c => {
-            // Optional callback to modify the Swagger document
-            c.PreSerializeFilters.Add((swaggerDoc, httpReq) => {
-                // Make sure the servers list is populated
-                swaggerDoc.Servers = new List<OpenApiServer>
-                {
-                    new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host.Value}" }
+        app.UseSwagger(options => {
+            options.PreSerializeFilters.Add((swagger, httpReq) => {
+                swagger.Servers = new List<OpenApiServer> { 
+                    new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host.Value}" } 
                 };
             });
         });
@@ -229,5 +239,23 @@ public static class SwaggerConfiguration
             return defaultValue;
         }
         return result;
+    }
+}
+
+// New filter to handle complex parameters in the EndpointController
+public class ComplexParameterFilter : IParameterFilter
+{
+    public void Apply(OpenApiParameter parameter, ParameterFilterContext context)
+    {
+        if (parameter.Name == "catchall")
+        {
+            parameter.Description = "API endpoint path (e.g., 'endpoint/resource')";
+            parameter.Required = true;
+        }
+        else if (parameter.Name == "env")
+        {
+            parameter.Description = "Target environment";
+            parameter.Required = true;
+        }
     }
 }

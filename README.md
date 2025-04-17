@@ -37,7 +37,7 @@ A powerful, lightweight API gateway built for Windows Server. You can use it for
 Download the latest release from the releases section and extract it to your desired location.
 
 ### 2. Create required folders
-These folders will be automatically created when the application runs, but you can create them manually if needed:
+These folders will be automatically created when the application runs, but most of them are already available in the set-up package.
 ```bash
 mkdir log
 mkdir tokens
@@ -141,10 +141,7 @@ Add a settings file for each environment:
 
 ### 5. Run the application
 
-Configure the application as a website in Internet Information Services, or run directly using:
-```bash
-dotnet PortwayApi.dll
-```
+Configure the application as a website in Internet Information Services. Note, if you're going to use the proxy make sure to change the application identity. Make sure to modify your application pool and website settings, for optimal uptime and security policies. E.g. for more information check [Security Headers by Probely](https://securityheaders.com/)
 
 ---
 

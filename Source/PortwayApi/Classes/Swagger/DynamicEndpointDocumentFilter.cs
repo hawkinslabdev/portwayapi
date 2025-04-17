@@ -209,7 +209,7 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
                 {
                     Tags = new List<OpenApiTag> { new OpenApiTag { Name = endpointName } },
                     Summary = $"{method} {endpointName} endpoint",
-                    Description = $"Proxies {method} requests to {url}",
+                    Description = $"Proxies {method} requests an internal webservice.",
                     OperationId = $"{method.ToLower()}_{endpointName}".Replace(" ", "_"),
                     Parameters = new List<OpenApiParameter>()
                 };

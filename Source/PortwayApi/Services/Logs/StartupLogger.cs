@@ -58,11 +58,11 @@ public class StartupLogger : IHostedService
         {
             var env = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
             Log.Information("🌎 Environment: {Environment}", env);
-            Log.Information("🖥️ Host: {MachineName}", Environment.MachineName);
-            Log.Information("💾 Working Directory: {WorkingDirectory}", Directory.GetCurrentDirectory());
-            Log.Information("⏰ Current Time: {Time}", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
-            Log.Information("🔧 .NET Version: {DotNetVersion}", Environment.Version);
-            Log.Information("💻 OS: {OS}", Environment.OSVersion);
+            Log.Debug("🖥️ Host: {MachineName}", Environment.MachineName);
+            Log.Debug("💾 Working Directory: {WorkingDirectory}", Directory.GetCurrentDirectory());
+            Log.Debug("⏰ Current Time: {Time}", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+            Log.Debug("🔧 .NET Version: {DotNetVersion}", Environment.Version);
+            Log.Debug("💻 OS: {OS}", Environment.OSVersion);
         }
         catch (Exception ex)
         {

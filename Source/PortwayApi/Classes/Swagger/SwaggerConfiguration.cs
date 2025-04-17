@@ -16,9 +16,10 @@ namespace PortwayApi.Classes;
 public class SwaggerSettings
 {
     public bool Enabled { get; set; } = true;
-    public string Title { get; set; } = "PortwayAPI";
+    public string? BaseProtocol { get; set; } = "https";
+    public string Title { get; set; } = "API Documentation";
     public string Version { get; set; } = "v1";
-    public string Description { get; set; } = "Comprehensive API for data integration and management";
+    public string Description { get; set; } = "A summary of the API documentation.";
     public ContactInfo Contact { get; set; } = new ContactInfo();
     public SecurityDefinitionInfo SecurityDefinition { get; set; } = new SecurityDefinitionInfo();
     public string RoutePrefix { get; set; } = "swagger";
@@ -28,12 +29,14 @@ public class SwaggerSettings
     public bool EnableFilter { get; set; } = true;
     public bool EnableDeepLinking { get; set; } = true;
     public bool EnableValidator { get; set; } = true;
+    public bool ForceHttpsInProduction { get; set; } = true; // Always use HTTPS in production environments
+
 }
 
 public class ContactInfo
 {
-    public string Name { get; set; } = "PortwayAPI Support";
-    public string Email { get; set; } = "support@portwayapi.com";
+    public string Name { get; set; } = "Support";
+    public string Email { get; set; } = "support@yourcompany.com";
 }
 
 public class SecurityDefinitionInfo

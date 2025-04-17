@@ -87,6 +87,15 @@ try
         serverOptions.Limits.Http2.InitialConnectionWindowSize = 128 * 1024; // 128 KB
         serverOptions.Limits.Http2.KeepAlivePingDelay = TimeSpan.FromSeconds(30);
         serverOptions.Limits.Http2.KeepAlivePingTimeout = TimeSpan.FromSeconds(60);
+
+        // 7. Configure HTTPS by forcing SSL when it's not localhost
+        if (!builder.Environment.IsDevelopment())
+        {
+            serverOptions.ConfigureEndpointDefaults(listenOptions =>
+            {
+                listenOptions.UseHttps();
+            });
+        }
     });
 
     // Add response compression
@@ -239,41 +248,64 @@ try
     app.UseStaticFiles();
 
     // Configure Swagger UI
-    app.UseSwagger(options => {
-        // This ensures you get detailed error information
-        options.PreSerializeFilters.Add((swagger, httpReq) => {
-            swagger.Servers = new List<OpenApiServer>
-            {
-                new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host}{httpReq.PathBase}" }
-            };
-        });
-    });
-
-    app.UseSwaggerUI(c =>
+    if(swaggerSettings.Enabled)
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", $"{swaggerSettings.Title} {swaggerSettings.Version}");
-        c.RoutePrefix = swaggerSettings.RoutePrefix ?? "swagger";
-    
-        var docExpansion = SwaggerConfiguration.ParseEnum<Swashbuckle.AspNetCore.SwaggerUI.DocExpansion>(
-            swaggerSettings.DocExpansion, 
-            Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
-        c.DocExpansion(docExpansion);
+        app.UseSwagger(options => {
+            // This ensures you get detailed error information
+            options.PreSerializeFilters.Add((swagger, httpReq) => {
+                // Use the BaseProtocol setting if provided, otherwise use the request's scheme
+                string scheme = swaggerSettings.BaseProtocol ?? httpReq.Scheme;
+                
+                // Force HTTPS in production or for public domains
+                string host = httpReq.Host.Value;
+                bool isProduction = !builder.Environment.IsDevelopment();
+                
+                if ((swaggerSettings.ForceHttpsInProduction && isProduction) || 
+                    (host.Contains(".") && !host.Contains("localhost") && !host.Contains("127.0.0.1"))) {
+                    scheme = "https";
+                    Log.Information("🔒 Forcing HTTPS in Swagger documentation: Environment={Env}, Host={Host}", 
+                        builder.Environment.EnvironmentName, host);
+                }
+                
+                // Also check for standard HTTPS headers
+                if (httpReq.Headers.ContainsKey("X-Forwarded-Proto") && 
+                    httpReq.Headers["X-Forwarded-Proto"] == "https") {
+                    scheme = "https";
+                }
+                
+                swagger.Servers = new List<OpenApiServer>
+                {
+                    new OpenApiServer { Url = $"{scheme}://{host}{httpReq.PathBase}" }
+                };
+            });
+        });
+
+        app.UseSwaggerUI(c =>
+        {
+            c.SwaggerEndpoint("/swagger/v1/swagger.json", $"{swaggerSettings.Title} {swaggerSettings.Version}");
+            c.RoutePrefix = swaggerSettings.RoutePrefix ?? "swagger";
         
-        // Apply other settings
-        c.DefaultModelsExpandDepth(swaggerSettings.DefaultModelsExpandDepth);
-        
-        if (swaggerSettings.DisplayRequestDuration)
-            c.DisplayRequestDuration();
+            var docExpansion = SwaggerConfiguration.ParseEnum<Swashbuckle.AspNetCore.SwaggerUI.DocExpansion>(
+                swaggerSettings.DocExpansion, 
+                Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
+            c.DocExpansion(docExpansion);
             
-        if (swaggerSettings.EnableFilter)
-            c.EnableFilter();
+            // Apply other settings
+            c.DefaultModelsExpandDepth(swaggerSettings.DefaultModelsExpandDepth);
             
-        if (swaggerSettings.EnableDeepLinking)
-            c.EnableDeepLinking();
-            
-        if (swaggerSettings.EnableValidator)
-            c.EnableValidator();
-    });
+            if (swaggerSettings.DisplayRequestDuration)
+                c.DisplayRequestDuration();
+                
+            if (swaggerSettings.EnableFilter)
+                c.EnableFilter();
+                
+            if (swaggerSettings.EnableDeepLinking)
+                c.EnableDeepLinking();
+                
+            if (swaggerSettings.EnableValidator)
+                c.EnableValidator();
+        });
+    }
 
     // Initialize Database & Create Default Token if needed
     using (var scope = app.Services.CreateScope())
@@ -298,7 +330,7 @@ try
             else
             {
                 Log.Information("✅ Using existing tokens. Total active tokens: {Count}", activeTokens.Count());
-                Log.Information("📁 Tokens are available in the tokens directory.");
+                Log.Warning("📁 Tokens are available in the tokens directory.");
             }
         }
         catch (Exception ex)
@@ -345,15 +377,56 @@ try
         Log.Information($"📊 SQL Endpoint: {endpoint.Key}; Object: {endpoint.Value.DatabaseSchema}.{endpoint.Value.DatabaseObjectName}");
     }
 
+    // Log Loaded Webhook endpoint
+    var webhookEndpoints = EndpointHandler.GetSqlWebhookEndpoints();
+    foreach (var endpoint in webhookEndpoints)
+    {
+        Log.Information($"🔔 Webhook Endpoint: {endpoint.Key} available");
+    }
+
     // Use Rate Limiting middleware
     PortwayApi.Middleware.RateLimiterExtensions.UseRateLimiter(app);
 
     // Use Token Authentication middleware
     app.UseTokenAuthentication();
     app.UseAuthorization();
-    app.UseForwardedHeaders(new ForwardedHeadersOptions
+
+    var forwardedHeadersOptions = new ForwardedHeadersOptions
     {
-        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | 
+                        ForwardedHeaders.XForwardedProto | 
+                        ForwardedHeaders.XForwardedHost,
+        RequireHeaderSymmetry = false,
+        ForwardLimit = null 
+    };
+    forwardedHeadersOptions.KnownNetworks.Clear();
+    forwardedHeadersOptions.KnownProxies.Clear();
+
+    app.UseForwardedHeaders(forwardedHeadersOptions);
+
+    app.Use((context, next) =>
+    {
+        // Check for Cloudflare headers
+        if (context.Request.Headers.TryGetValue("CF-Visitor", out var cfVisitor))
+        {
+            if (cfVisitor.ToString().Contains("\"scheme\":\"https\""))
+            {
+                context.Request.Scheme = "https";
+            }
+        }
+        
+        // Also check for Cloudflare connecting protocol
+        if (context.Request.Headers.TryGetValue("CF-Connecting-IP", out var _))
+        {
+            // We're behind Cloudflare, so trust the X-Forwarded-Proto header
+            if (context.Request.Headers.TryGetValue("X-Forwarded-Proto", out var proto) && 
+                proto == "https")
+            {
+                context.Request.Scheme = "https";
+            }
+        }
+        
+        return next();
     });
 
     // Map controller routes
@@ -374,6 +447,11 @@ try
         {
             Log.Information("   {Url}", url);
         }
+    }
+    else if (builder.Environment.IsProduction() && Environment.GetEnvironmentVariable("ASPNETCORE_IIS_PHYSICAL_PATH") != null)
+    {
+        // We're running in IIS
+        Log.Information("🌐 Application is hosted in IIS");
     }
     else
     {

@@ -27,7 +27,8 @@ A powerful, lightweight API gateway built for Windows Server. You can use it for
 
 ## 🛣️ Roadmap
 
-[ ] Fix the webhook implementation, which now causes a 404.
+- [ ] Fix the webhook implementation, which now causes a 404.
+- [ ] Implement more detailed logging.
 
 ---
 

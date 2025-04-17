@@ -29,15 +29,20 @@ public class UrlValidator
             throw new InvalidOperationException("Configuration could not be loaded.");
         }
 
-        // Start with default localhost hosts
-        _allowedHosts = new List<string> 
-        { 
-            "localhost", 
-            "127.0.0.1" 
-        };
-        
-        // Add dynamically discovered hosts
-        _allowedHosts.AddRange(DiscoverAllowedHosts());
+        // Prioritize hosts from configuration
+        _allowedHosts = config.AllowedHosts?.Count > 0
+            ? config.AllowedHosts
+            : new List<string> 
+            { 
+                "localhost", 
+                "127.0.0.1" 
+            };
+
+        // Only add discovered hosts if no hosts are specified in config
+        if (_allowedHosts.Count <= 2) // default localhost hosts
+        {
+            _allowedHosts.AddRange(DiscoverAllowedHosts());
+        }
 
         _blockedRanges = config.BlockedIpRanges?.Count > 0
             ? config.BlockedIpRanges
@@ -96,6 +101,7 @@ public class UrlValidator
                         catch
                         {
                             // Ignore DNS resolution errors
+                            Log.Warning("Failed to resolve hostname for IP: {Ip}", unicast.Address);
                         }
                     }
                 }
@@ -142,31 +148,50 @@ public class UrlValidator
             var uri = new Uri(url);
             string host = uri.Host.Split(':')[0];
             
-            Log.Debug("🕵️ Validating URL: {Url}", url);
-            Log.Debug("🏠 Host to validate: {Host}", host);
+            Log.Information("🕵️ Validating URL: {Url}", url);
+            Log.Information("🏠 Host to validate: {Host}", host);
             
             var addresses = Dns.GetHostAddresses(host);
-            Log.Debug("🌐 Resolved Addresses: {Addresses}", 
+            Log.Information("🌐 Resolved Addresses: {Addresses}", 
                 string.Join(", ", addresses.Select(a => a.ToString())));
             
+            // Track blocked IPs for detailed logging
+            var blockedIps = new List<string>();
             bool anyIpBlocked = addresses.Any(ip => 
-                _blockedRanges.Any(range => IsIpInRange(ip, range)));
+            {
+                bool isBlocked = _blockedRanges.Any(range => 
+                {
+                    bool inRange = IsIpInRange(ip, range);
+                    if (inRange)
+                    {
+                        blockedIps.Add($"{ip} in range {range}");
+                    }
+                    return inRange;
+                });
+                return isBlocked;
+            });
                 
             if (anyIpBlocked)
             {
-                Log.Error("❌ Host {Host} resolves to blocked IP address", host);
+                Log.Warning("❌ Host {Host} blocked due to IP restrictions", host);
+                Log.Warning("🚫 Blocked IP Details: {BlockedIpDetails}", 
+                    string.Join(", ", blockedIps));
                 return false;
             }
             
             bool isHostAllowed = _allowedHosts.Any(allowed => 
-                string.Equals(host, allowed, StringComparison.OrdinalIgnoreCase));
+                string.Equals(host, allowed, StringComparison.OrdinalIgnoreCase) ||
+                MatchHostPattern(host, allowed));
                 
             if (!isHostAllowed)
             {
-                Log.Error("❌ Host {Host} is NOT in allowed hosts", host);
+                Log.Warning("❌ Host {Host} is NOT in allowed hosts", host);
+                Log.Warning("📋 Allowed Hosts: {AllowedHosts}", 
+                    string.Join(", ", _allowedHosts));
                 return false;
             }
             
+            Log.Information("✅ URL {Url} validated successfully", url);
             return true;
         }
         catch (Exception ex)
@@ -269,8 +294,19 @@ public class UrlValidator
     /// </summary>
     private bool IsIpAllowed(IPAddress ip)
     {
-        // Check against blocked ranges
-        return !_blockedRanges.Any(range => IsIpInRange(ip, range));
+        // Check against blocked ranges with detailed logging
+        var blockedBy = _blockedRanges
+            .Where(range => IsIpInRange(ip, range))
+            .ToList();
+
+        if (blockedBy.Any())
+        {
+            Log.Warning("🚫 IP {IpAddress} is blocked by the following ranges: {BlockedRanges}", 
+                ip, string.Join(", ", blockedBy));
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>

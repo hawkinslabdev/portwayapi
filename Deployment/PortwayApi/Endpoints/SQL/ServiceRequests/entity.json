@@ -9,7 +9,6 @@
       "Priority",
       "Status",
       "CategoryId",
-      "CategoryName",
       "AssignedTo",
       "CreatedBy",
       "CreatedDate",

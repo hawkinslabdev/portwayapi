@@ -142,8 +142,11 @@ public class RateLimiter
         _settings = new RateLimitSettings();
         configuration.GetSection("RateLimiting").Bind(_settings);
         
-        _logger.LogInformation("🚦 Rate limiter {InstanceId} initialized - Enabled: {Enabled}, IP: {IpLimit}/{IpWindow}s, Token: {TokenLimit}/{TokenWindow}s",
+        if (_settings.Enabled)
+        {
+            _logger.LogInformation("🚦 Rate limiter {InstanceId} initialized - Enabled: {Enabled}, IP: {IpLimit}/{IpWindow}s, Token: {TokenLimit}/{TokenWindow}s",
             _instanceId, _settings.Enabled, _settings.IpLimit, _settings.IpWindow, _settings.TokenLimit, _settings.TokenWindow);
+        }
     }
 
     // Improved token masking method

@@ -48,13 +48,6 @@ $webConfigContent = @"
       <customHeaders>
         <remove name="X-Powered-By" />
         <add name="X-Powered-By" value="cache" />
-        <add name="Content-Security-Policy" 
-             value="default-src * 'unsafe-inline' 'unsafe-eval';
-                    style-src * 'unsafe-inline' 'unsafe-eval';
-                    script-src * 'unsafe-inline' 'unsafe-eval';
-                    img-src * data:;
-                    font-src * data:;
-                    connect-src *" />
         <add name="Permissions-Policy" value="camera=(), microphone=(), geolocation=(), payment=()" />
         <add name="Referrer-Policy" value="no-referrer" />
         <add name="Strict-Transport-Security" value="max-age=31536000; includeSubDomains" />

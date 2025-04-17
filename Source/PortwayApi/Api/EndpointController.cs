@@ -570,8 +570,13 @@ public class EndpointController : ControllerBase
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "❌ Error during proxy request processing");
-            throw;
+            Log.Error(ex, "❌ Error during proxy request: {EndpointName}", endpointName);
+
+            return Problem(
+                detail: $"Error processing endpoint {endpointName}: {ex.Message}",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
+            );
         }
     }
 
@@ -623,8 +628,13 @@ public class EndpointController : ControllerBase
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "❌ Error processing composite endpoint {EndpointName}", endpointName);
-            throw;
+            Log.Error(ex, "❌ Error during composite (proxy) request: {EndpointName}", endpointName);
+            
+            return Problem(
+                detail: $"Error processing endpoint {endpointName}: {ex.Message}",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
+            );
         }
     }
 
@@ -706,8 +716,13 @@ public class EndpointController : ControllerBase
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "❌ Error processing webhook {WebhookId}", webhookId);
-            throw;
+            Log.Error(ex, "❌ Error during webhook processing: {WebhookId}", webhookId);
+            
+            return Problem(
+                detail: $"Error processing webhook {webhookId}: {ex.Message}",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
+            );
         }
     }
 
@@ -880,8 +895,13 @@ public class EndpointController : ControllerBase
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "❌ Error processing SQL query for {Endpoint}", endpointName);
-            throw;
+            Log.Error(ex, "❌ Error during SQL query for endpoint: {EndpointName}", endpointName);
+            
+            return Problem(
+                detail: $"Error processing endpoint {endpointName}: {ex.Message}",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
+            );
         }
     }
     
@@ -985,8 +1005,13 @@ public class EndpointController : ControllerBase
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "❌ Error processing INSERT for {Endpoint}", endpointName);
-            throw;
+            Log.Error(ex, "❌ Error during INSERT for request: {EndpointName}", endpointName);
+            
+            return Problem(
+                detail: $"Error processing endpoint {endpointName}: {ex.Message}",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
+            );
         }
     }
 

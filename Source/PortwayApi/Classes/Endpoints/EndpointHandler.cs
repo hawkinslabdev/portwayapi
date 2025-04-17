@@ -223,7 +223,7 @@ public static class EndpointHandler
                 }
             }
 
-            Log.Information($"✅ Loaded {endpoints.Count} proxy endpoints from {endpointsDirectory}");
+            Log.Debug($"✅ Loaded {endpoints.Count} proxy endpoints from {endpointsDirectory}");
         }
         catch (Exception ex)
         {
@@ -273,7 +273,7 @@ public static class EndpointHandler
                         // Add the endpoint to the dictionary
                         endpoints[endpointName] = definition;
                         
-                        Log.Information($"📊 SQL Endpoint: {endpointName}; Object: {definition.DatabaseSchema}.{definition.DatabaseObjectName}");
+                        Log.Debug($"📊 SQL Endpoint: {endpointName}; Object: {definition.DatabaseSchema}.{definition.DatabaseObjectName}");
                     }
                     else
                     {
@@ -286,7 +286,7 @@ public static class EndpointHandler
                 }
             }
 
-            Log.Information($"✅ Loaded {endpoints.Count} SQL endpoints from {endpointsDirectory}");
+            Log.Debug($"✅ Loaded {endpoints.Count} SQL endpoints from {endpointsDirectory}");
         }
         catch (Exception ex)
         {
@@ -336,7 +336,7 @@ public static class EndpointHandler
                         // Add the endpoint to the dictionary
                         endpoints[endpointName] = definition;
                         
-                        Log.Information($"📊 SQL Webhook Endpoint: {endpointName}; Object: {definition.DatabaseSchema}.{definition.DatabaseObjectName}");
+                        Log.Debug($"📊 SQL Webhook Endpoint: {endpointName}; Object: {definition.DatabaseSchema}.{definition.DatabaseObjectName}");
                     }
                     else
                     {
@@ -349,7 +349,7 @@ public static class EndpointHandler
                 }
             }
 
-            Log.Information($"✅ Loaded {endpoints.Count} webhook endpoints from {endpointsDirectory}");
+            Log.Debug($"✅ Loaded {endpoints.Count} webhook endpoints from {endpointsDirectory}");
         }
         catch (Exception ex)
         {

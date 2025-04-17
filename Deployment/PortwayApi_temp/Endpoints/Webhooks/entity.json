@@ -1,0 +1,8 @@
+{
+    "DatabaseObjectName": "WebhookData",
+    "DatabaseSchema": "dbo",
+    "AllowedColumns": [
+      "webhook1",
+      "webhook2"
+    ]
+  }

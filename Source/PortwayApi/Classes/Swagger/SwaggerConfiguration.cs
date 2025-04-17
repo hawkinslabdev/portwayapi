@@ -131,6 +131,21 @@ public static class SwaggerConfiguration
                         new string[] { }
                     }
                 });
+
+                // Add XML comments for better documentation
+                var xmlFile = $"{typeof(Program).Assembly.GetName().Name}.xml";
+                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+                if (File.Exists(xmlPath))
+                {
+                    c.IncludeXmlComments(xmlPath);
+                }
+                else
+                {
+                    Log.Warning($"⚠️ XML comments file '{xmlFile}' not found. Swagger documentation may be incomplete.");
+                }
+
+                // Add custom schema filter for recursive types
+                c.SchemaFilter<SwaggerSchemaFilter>();
                 
                 // Important fix: Handle complex parameters in the EndpointController
                 c.ParameterFilter<ComplexParameterFilter>();
@@ -155,6 +170,8 @@ public static class SwaggerConfiguration
                 
                 // Add this line to resolve conflicting actions
                 c.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
+
+                c.DocumentFilter<AlphabeticalEndpointSorter>();
             });
 
             // Register the parameter filter for complex parameters
@@ -164,6 +181,7 @@ public static class SwaggerConfiguration
             builder.Services.AddSingleton<DynamicEndpointDocumentFilter>();
             builder.Services.AddSingleton<CompositeEndpointDocumentFilter>();
             builder.Services.AddSingleton<DynamicEndpointOperationFilter>();
+            builder.Services.AddSingleton<AlphabeticalEndpointSorter>();
             
             Log.Information("✅ Swagger services registered successfully");
         }
@@ -259,3 +277,4 @@ public class ComplexParameterFilter : IParameterFilter
         }
     }
 }
+

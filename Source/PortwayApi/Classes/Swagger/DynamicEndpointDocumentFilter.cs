@@ -180,7 +180,7 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
         // Create webhook POST operation
         var webhookOperation = new OpenApiOperation
         {
-            Tags = new List<OpenApiTag> { new() { Name = "Webhooks" } },
+            Tags = new List<OpenApiTag> { new() { Name = "Webhook" } },
             Summary = "Process incoming webhook",
             Description = "Receives and processes a webhook payload",
             OperationId = $"op_{operationIdCounter++}",
@@ -244,7 +244,7 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
     {
         var operation = new OpenApiOperation
         {
-            Tags = new List<OpenApiTag> { new() { Name = "SQL" } },
+            Tags = new List<OpenApiTag> { new() { Name = endpointName } }, // Assign unique tag based on endpoint name
             Summary = $"{method} {endpointName}",
             Description = $"{method} operation for {definition.DatabaseSchema}.{definition.DatabaseObjectName}",
             OperationId = $"op_{operationId}",
@@ -366,7 +366,7 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
     {
         var operation = new OpenApiOperation
         {
-            Tags = new List<OpenApiTag> { new() { Name = "SQL" } },
+            Tags = new List<OpenApiTag> { new() { Name = endpointName } }, // Assign unique tag based on endpoint name
             Summary = $"DELETE {endpointName}",
             Description = $"Delete operation for {definition.DatabaseSchema}.{definition.DatabaseObjectName}",
             OperationId = $"op_{operationId}",
@@ -418,7 +418,7 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
     {
         var operation = new OpenApiOperation
         {
-            Tags = new List<OpenApiTag> { new() { Name = "Proxy" } },
+            Tags = new List<OpenApiTag> { new() { Name = endpointName } }, // Assign unique tag based on endpoint name
             Summary = $"{method} {endpointName}",
             Description = $"Proxy {method} request to {targetUrl}",
             OperationId = $"op_{operationId}",

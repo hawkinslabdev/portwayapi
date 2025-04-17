@@ -221,6 +221,7 @@ try
     builder.Services.AddSingleton<DynamicEndpointOperationFilter>();
     builder.Services.AddSingleton<CompositeEndpointDocumentFilter>();
     builder.Services.AddSingleton<ComplexParameterFilter>();
+    builder.Services.AddSingleton<AlphabeticalEndpointSorter>();
 
     // Build the application
     var app = builder.Build();
@@ -252,8 +253,7 @@ try
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", $"{swaggerSettings.Title} {swaggerSettings.Version}");
         c.RoutePrefix = swaggerSettings.RoutePrefix ?? "swagger";
-        
-        // Set doc expansion with fallback
+    
         var docExpansion = SwaggerConfiguration.ParseEnum<Swashbuckle.AspNetCore.SwaggerUI.DocExpansion>(
             swaggerSettings.DocExpansion, 
             Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
@@ -274,6 +274,7 @@ try
         if (swaggerSettings.EnableValidator)
             c.EnableValidator();
     });
+
     // Initialize Database & Create Default Token if needed
     using (var scope = app.Services.CreateScope())
     {

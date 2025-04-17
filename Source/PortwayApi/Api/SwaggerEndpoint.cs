@@ -8,8 +8,8 @@ namespace PortwayApi.Api;
 /// This resolves the Swagger documentation issue while the real requests are handled by EndpointController
 /// </summary>
 [ApiController]
-[ApiExplorerSettings(IgnoreApi = false)]
 [Route("api/swagger-docs")]
+[ApiExplorerSettings(IgnoreApi = true)]
 public class SwaggerDocsController : ControllerBase
 {
     /// <summary>

@@ -1,8 +1,0 @@
-{
-    "DatabaseObjectName": "Items",
-    "DatabaseSchema": "dbo",
-    "AllowedColumns": [
-        "ItemCode","Description","Assortment","sysguid"
-    ]
-  }
-  

@@ -1,5 +1,0 @@
-{
-    "Url": "http://localhost:8020/services/Exact.Entity.REST.EG/SalesOrderLine", 
-    "Methods": ["POST"],
-    "IsPrivate": true
-}

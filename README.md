@@ -1,156 +1,118 @@
-# 🌐 Portway (Remote gateway API)
+# ✨ Portway API
 
-Portway is a powerful and flexible API integration solution, combining the capabilities of proxy forwarding and direct SQL endpoint access. This project is a combination of two original projects: MinimalProxy and MinimalSQLAPI, merged into a unified solution.
+A powerful, lightweight API gateway for SQL Server data access and service proxying with environment awareness.
 
-## ✨ Key Features
+![Screenshot of Swagger UI](https://raw.githubusercontent.com/hawkinslabdev/portwayapi/refs/heads/main/Source/example.png)
 
--  **Endpoint Types**
-    You can configure different types of API endpoints, each designed for specific use cases:
+## 🚀 Features
+- **Multiple Endpoint Types**
+  
+  We support various endpoint types. You can connect your internal webservices and expose specific endpoints; or you can expose your database directly for specific tables, schema's and/or fields.
+  - 🗄️ **SQL API**: Direct SQL Server data access with OData support. This now supports POST requests!
+  - 🔀 **Proxy**: Forward requests to internal services with authentication. This now supports chaining, to combine multiple operations in a single request. Call the "Line" endpoint before the "Header", all from one request!
+  - 📥 **Webhook**: Process incoming webhooks and store data, directly into your database.
+- 🔐 **Secure authentication**: Token-based auth with Azure Key Vault support.
+- 🌍 **Environment Awareness** Route to different environments (test, production, etc.).
+- 📊 **Automatic documentation**: Swagger UI for all endpoints.
+- 📝 **Detailed logging**: Comprehensive request/response tracking. This now supports tracing live data coming in!
+- 🔄 **Rate limiting**: Protect services from overload, which is easy to configure.
 
-    - **SQL API Endpoints**  
-    Automatically generate endpoints from SQL tables or stored procedures.
+## 📦 Requirements
+- [.NET 8+ ASP.NET Core Runtime](https://dotnet.microsoft.com/en-us/download)
+- Internet Information Services (for production)
+- SQL Server database access (for SQL endpoints)
+- Local write access for logs and configuration
 
-    - **Proxy Endpoints**  
-    Forward requests to backend services, with built-in support for URL rewriting and authentication.
+---
 
-    - **Composite Endpoints**  
-    Combine multiple API calls into one, including support for data transformation between steps.
+## 🛠️ Setup
 
-    - **Webhook Endpoints**  
-    Receive and process incoming webhooks, with the ability to store data directly in a SQL database.
+### 1. Download the release
+Download the latest release from the releases section and extract it to your desired location.
 
-- **Authentication**: Secure token-based authentication with automatic key generation
-- **Health Monitoring**: Built-in health checks for system diagnostics
-- **Rate Limiting**: Protect your services from overuse with configurable rate limiting
-- **OData Support**: Use OData query syntax for filtering, pagination, and sorting
-
-## 🗂️ Project Structure
-
-```
-Portway/
-├── Api/                    # API controllers  
-├── Auth/                   # Authentication handlers
-├── Classes/                # Core functionality classes
-├── endpoints/              # Endpoint definitions
-│   ├── Proxy/              # Proxy endpoint configurations
-│   ├── SQL/                # SQL endpoint configurations
-│   └── Webhooks/           # Webhook configurations
-├── environments/           # Environment configuration
-│   ├── 600/                # Environment-specific settings
-│   └── 700/                # Environment-specific settings
-├── Helpers/                # Utility helper classes
-├── Interfaces/             # Interface definitions
-├── Middleware/             # Request pipeline middleware
-├── Services/               # Background and supporting services
-└── wwwroot/                # Static web content
+### 2. Create required folders
+These folders will be automatically created when the application runs, but you can create them manually if needed:
+```bash
+mkdir log
+mkdir tokens
+mkdir environments
+mkdir endpoints/SQL
+mkdir endpoints/Proxy
+mkdir endpoints/Webhooks
 ```
 
-## 🚀 Getting Started
+### 3. Configure environments
+Add a settings file for each environment:
 
-### 🛠️ Prerequisites
-
-- .NET 8.0 SDK or later
-- SQL Server (for SQL API endpoints)
-- Access to the target services (for proxy endpoints)
-
-### 📦 Installation
-
-1. Clone the repository:
-   ```
-   git clone https://github.com/hawkinslabdev/Portway.git
-   ```
-
-2. Navigate to the project directory:
-   ```
-   cd Portway/Source/Portway
-   ```
-
-3. Restore packages and build the solution:
-   ```
-   dotnet restore
-   dotnet build
-   ```
-
-4. Run the application:
-   ```
-   dotnet run
-   ```
-
-5. Access the Swagger UI:
-   ```
-   http://localhost:5171/swagger
-   ```
-
-### ⚙️ Configuration
-
-#### 🌍 Environment Configuration
-
-Create environment settings in the `environments/{env}` folder. Each environment folder should contain a `settings.json` file with the following structure:
-
+**`environments/settings.json`**
 ```json
 {
   "Environment": {
     "ServerName": "localhost",
-    "AllowedEnvironments": ["dev", "test", "prod"],
-    "ConnectionString": "Server=localhost;Database=MyDatabase;User Id=myuser;Password=mypassword;"
+    "AllowedEnvironments": ["prod", "dev"]
   }
 }
 ```
 
-#### 🗄️ SQL Endpoint Configuration
+**`environments/prod/settings.json`**
+```json
+{
+  "ServerName": "localhost",
+  "ConnectionString": "Server=localhost;Database=prod;Trusted_Connection=True;Connection Timeout=5;TrustServerCertificate=true;"
+}
+```
 
-Create a folder in `endpoints/SQL/{EndpointName}` with an `entity.json` file:
+### 4. Configure endpoints
 
+#### SQL Endpoint
+**`endpoints/SQL/Products/entity.json`**
 ```json
 {
   "DatabaseObjectName": "Items",
   "DatabaseSchema": "dbo",
-  "AllowedColumns": ["ItemCode", "Description", "Price"],
-  "AllowedMethods": ["GET", "POST", "PUT", "DELETE"],
-  "Procedure": "dbo.HandleItems"
+  "AllowedColumns": [
+    "ItemCode","Description","Assortment","sysguid"
+  ]
 }
 ```
 
-#### 🔀 Proxy Endpoint Configuration
-
-Create a folder in `endpoints/Proxy/{EndpointName}` with an `entity.json` file:
-
+#### Proxy Endpoint
+**`endpoints/Proxy/Accounts/entity.json`**
 ```json
-{
-  "Url": "http://backend.service/api/endpoint",
-  "Methods": ["GET", "POST", "PUT", "DELETE"],
-  "IsPrivate": false
+{ 
+  "Url": "http://localhost:8020/services/Exact.Entity.REST.EG/Account", 
+  "Methods": ["GET", "POST", "PUT", "DELETE","MERGE"] 
 }
 ```
 
-#### 🧩 Composite Endpoint Configuration
-
-Create a folder in `endpoints/Proxy/{EndpointName}` with an `entity.json` file:
-
+#### Composite Endpoint
+**`endpoints/Proxy/SalesOrder/entity.json`**
 ```json
 {
   "Type": "Composite",
   "Url": "http://localhost:8020/services/Exact.Entity.REST.EG",
   "Methods": ["POST"],
   "CompositeConfig": {
-    "Name": "SampleComposite",
-    "Description": "Sample composite endpoint",
+    "Name": "SalesOrder",
+    "Description": "Creates a complete sales order with multiple order lines and a header",
     "Steps": [
       {
-        "Name": "Step1",
-        "Endpoint": "Endpoint1",
+        "Name": "CreateOrderLines",
+        "Endpoint": "SalesOrderLine",
         "Method": "POST",
+        "IsArray": true,
+        "ArrayProperty": "Lines",
         "TemplateTransformations": {
           "TransactionKey": "$guid"
         }
       },
       {
-        "Name": "Step2",
-        "Endpoint": "Endpoint2",
+        "Name": "CreateOrderHeader",
+        "Endpoint": "SalesOrderHeader",
         "Method": "POST",
-        "DependsOn": "Step1",
+        "SourceProperty": "Header",
         "TemplateTransformations": {
-          "TransactionKey": "$prev.Step1.TransactionKey"
+          "TransactionKey": "$prev.CreateOrderLines.0.d.TransactionKey"
         }
       }
     ]
@@ -158,65 +120,127 @@ Create a folder in `endpoints/Proxy/{EndpointName}` with an `entity.json` file:
 }
 ```
 
-## 🔒 Authentication
-
-The application uses token-based authentication. On first run, a token will be generated and saved to the `tokens` directory. You must include this token in your requests:
-
-```
-Authorization: Bearer {token}
-```
-
-## 📡 Using the API
-
-### 🗄️ SQL Endpoints
-
-```
-GET /api/{env}/{endpoint}?$select=Column1,Column2&$filter=Column3 eq 'Value'&$top=10&$skip=0
+#### Webhook Endpoint
+**`endpoints/Webhooks/entity.json`**
+```json
+{
+  "DatabaseObjectName": "WebhookData",
+  "DatabaseSchema": "dbo",
+  "AllowedColumns": [
+    "webhook1",
+    "webhook2"
+  ]
+}
 ```
 
-### 🔀 Proxy Endpoints
+### 5. Run the application
 
-```
-GET /api/{env}/{endpoint}/{path}?queryParam=value
-```
-
-### 🧩 Composite Endpoints
-
-```
-POST /api/{env}/composite/{endpoint}
+Configure the application as a website in Internet Information Services, or run directly using:
+```bash
+dotnet PortwayApi.dll
 ```
 
-With a JSON body containing the data for all steps.
+---
 
-### 📥 Webhook Endpoints
+## 👮 Secure Authentication
+- On first run, a SQLite database `auth.db` will be created with an enhanced security model
+- The system automatically generates a token bound to the machine name:
+  ```text
+  🗝️ Generated token for SERVER-1: <your-token>
+  💾 Token saved to: /tokens/SERVER-1.txt
+  ```
+- Include the token in requests as:
+  ```http
+  Authorization: Bearer YOUR_TOKEN
+  ```
 
+## 🗝️ Azure Key Vault Integration
+Set the KEYVAULT_URI environment variable to your Key Vault's URI, and create secrets following the {environment}-ConnectionString and {environment}-ServerName naming convention.
+
+```powershell
+$env:KEYVAULT_URI = "https://your-keyvault-name.vault.azure.net/"
 ```
-POST /webhook/{env}/{webhookId}
+
+---
+
+## 🔄 API Usage
+
+### SQL Endpoints
+```http
+GET /api/prod/Products?$filter=Assortment eq 'Books'&$select=ItemCode,Description
 ```
 
-With a JSON payload in the request body.
+### Proxy Endpoints
+```http
+GET /api/prod/Accounts
+POST /api/prod/Accounts
+```
 
-## 🩺 Health Checks
+### Composite Endpoints
+```http
+POST /api/prod/composite/SalesOrder
+Content-Type: application/json
 
-Access system health information:
+{
+  "Header": {
+    "OrderDebtor": "prod93",
+    "YourReference": "Connect async"
+  },
+  "Lines": [
+    {
+      "Itemcode": "BEK0001",
+      "Quantity": 2,
+      "Price": 0
+    },
+    {
+      "Itemcode": "BEK0002",
+      "Quantity": 4,
+      "Price": 0
+    }
+  ]
+}
+```
 
+### Webhook Endpoints
+```http
+POST /webhook/prod/webhook1
+Content-Type: application/json
+
+{
+  "eventType": "order.created",
+  "data": {
+    "orderId": "12345",
+    "customer": "ACME Corp"
+  }
+}
+```
+
+## 📅 Logging
+- Logs are stored in the `/log` folder and rotate daily.
+- Console output includes timestamps.
+- EF Core database commands are logged at `Warning` level to avoid verbosity.
+- Authentication events are logged for auditing purposes.
+
+## 🔒 Security Model
+The authentication system implements industry best practices:
+- No plaintext tokens stored in the database
+- Cryptographically secure hashing with PBKDF2/SHA256
+- Username binding for token ownership and auditing
+- File-based token distribution for token distribution
+
+## 🔍 Monitoring
+Health check endpoints are available at:
 ```
 GET /health
 GET /health/live
 GET /health/details
 ```
 
-## 🛠️ Troubleshooting
+## ✨ Credits
+Built with ❤️ using:
+- [ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/)
+- [DynamicODataToSQL](https://github.com/your-org/dynamicodata-to-sql)
+- [Serilog](https://serilog.net/)
+- [SQLite](https://www.sqlite.org/index.html)
 
-- Check the log files in the `log` directory for detailed error information
-- Verify that endpoint configurations are correctly formatted
-- Ensure database connections are properly configured in environment settings
-- Check authentication tokens are valid and included in requests
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📜 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
+Feel free to submit a PR if you'd like to contribute.

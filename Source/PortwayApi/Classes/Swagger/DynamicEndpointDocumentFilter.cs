@@ -39,6 +39,60 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
             AddSqlEndpoints(swaggerDoc, allowedEnvironments, ref operationIdCounter);
             AddProxyEndpoints(swaggerDoc, allowedEnvironments, ref operationIdCounter);
             AddWebhookEndpoints(swaggerDoc, allowedEnvironments, ref operationIdCounter);
+
+            // Ensure application/json is added automatically to all operations
+            foreach (var path in swaggerDoc.Paths)
+            {
+                foreach (var operation in path.Value.Operations)
+                {
+                    if (operation.Value.RequestBody != null && !operation.Value.RequestBody.Content.ContainsKey("application/json"))
+                    {
+                        operation.Value.RequestBody.Content["application/json"] = new OpenApiMediaType
+                        {
+                            Schema = new OpenApiSchema { Type = "object" }
+                        };
+                    }
+                }
+            }
+
+            // Ensure Content-Type: application/json is added for all operations with a request body
+            foreach (var path in swaggerDoc.Paths)
+            {
+                foreach (var operation in path.Value.Operations)
+                {
+                    if (operation.Value.RequestBody != null && !operation.Value.Parameters.Any(p => p.Name == "Content-Type"))
+                    {
+                        operation.Value.Parameters.Add(new OpenApiParameter
+                        {
+                            Name = "Content-Type",
+                            In = ParameterLocation.Header,
+                            Required = true,
+                            Schema = new OpenApiSchema
+                            {
+                                Type = "string",
+                                Default = new OpenApiString("application/json")
+                            },
+                            Description = "Specifies the media type of the request body (default is application/json)"
+                        });
+                    }
+
+                    if (operation.Value.RequestBody != null && !operation.Value.Parameters.Any(p => p.Name == "Accept"))
+                    {
+                        operation.Value.Parameters.Add(new OpenApiParameter
+                        {
+                            Name = "Accept",
+                            In = ParameterLocation.Header,
+                            Required = true,
+                            Schema = new OpenApiSchema
+                            {
+                                Type = "string",
+                                Default = new OpenApiString("application/json")
+                            },
+                            Description = "Specifies the media type of the response (default is application/json)"
+                        });
+                    }
+                }
+            }
         }
         catch (Exception ex) {
             _logger.LogError(ex, "Error applying document filter");
@@ -148,20 +202,103 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
                 swaggerDoc.Paths[path] = new OpenApiPathItem();
             }
             
-            // Add operations based on allowed methods
+            // Add operations for each HTTP method
             foreach (var method in methods)
             {
-                var opType = GetOperationType(method);
-                if (opType == null) continue;
+                var operation = new OpenApiOperation
+                {
+                    Tags = new List<OpenApiTag> { new OpenApiTag { Name = endpointName } },
+                    Summary = $"{method} {endpointName} endpoint",
+                    Description = $"Proxies {method} requests to {url}",
+                    OperationId = $"{method.ToLower()}_{endpointName}".Replace(" ", "_"),
+                    Parameters = new List<OpenApiParameter>()
+                };
+
+                // Add environment parameter
+                operation.Parameters.Add(new OpenApiParameter
+                {
+                    Name = "env",
+                    In = ParameterLocation.Path,
+                    Required = true,
+                    Schema = new OpenApiSchema { Type = "string", Enum = allowedEnvironments.Select(e => new OpenApiString(e)).Cast<IOpenApiAny>().ToList() },
+                    Description = $"Environment to target. Allowed values: {string.Join(", ", allowedEnvironments)}"
+                });
+
+                // Add OData style query parameters for GET requests
+                if (method.Equals("GET", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Add $select parameter
+                    operation.Parameters.Add(new OpenApiParameter
+                    {
+                        Name = "$select",
+                        In = ParameterLocation.Query,
+                        Required = false,
+                        Schema = new OpenApiSchema { Type = "string" },
+                        Description = "Select specific fields (comma-separated list of property names)"
+                    });
+
+                    // Add $top parameter with default value
+                    operation.Parameters.Add(new OpenApiParameter
+                    {
+                        Name = "$top",
+                        In = ParameterLocation.Query,
+                        Required = false,
+                        Schema = new OpenApiSchema { 
+                            Type = "integer", 
+                            Default = new OpenApiInteger(10),
+                            Minimum = 1,
+                            Maximum = 1000
+                        },
+                        Description = "Limit the number of results returned (default: 10, max: 1000)"
+                    });
+
+                    // Add $filter parameter
+                    operation.Parameters.Add(new OpenApiParameter
+                    {
+                        Name = "$filter",
+                        In = ParameterLocation.Query,
+                        Required = false,
+                        Schema = new OpenApiSchema { Type = "string" },
+                        Description = "Filter the results based on a condition (e.g., Name eq 'Value')"
+                    });
+                }
                 
-                var operation = CreateProxyOperation(
-                    endpointName, 
-                    method, 
-                    url, 
-                    allowedEnvironments, 
-                    operationIdCounter++);
-                    
-                swaggerDoc.Paths[path].Operations[opType.Value] = operation;
+                // Add request body for methods that support it
+                if (method.Equals("POST", StringComparison.OrdinalIgnoreCase) || 
+                    method.Equals("PUT", StringComparison.OrdinalIgnoreCase) ||
+                    method.Equals("PATCH", StringComparison.OrdinalIgnoreCase))
+                {
+                    operation.RequestBody = new OpenApiRequestBody
+                    {
+                        Required = true,
+                        Content = new Dictionary<string, OpenApiMediaType>
+                        {
+                            ["application/json"] = new OpenApiMediaType
+                            {
+                                Schema = new OpenApiSchema { Type = "object" }
+                            }
+                        }
+                    };
+                }
+
+                // Add example response
+                operation.Responses = new OpenApiResponses
+                {
+                    ["200"] = new OpenApiResponse 
+                    { 
+                        Description = "Successful response",
+                        Content = new Dictionary<string, OpenApiMediaType>
+                        {
+                            ["application/json"] = new OpenApiMediaType
+                            {
+                                Schema = new OpenApiSchema { Type = "object" }
+                            }
+                        }
+                    }
+                };
+
+                // Add the operation to the path with the appropriate HTTP method
+                AddOperationToPath(swaggerDoc.Paths[path], method, operation);
             }
         }
     }
@@ -452,6 +589,20 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
                 Schema = new OpenApiSchema { Type = "string" },
                 Description = "Filter expression"
             });
+            
+            // Add default $top=10 to the parameters for Proxy GET requests in Swagger
+            operation.Parameters.Add(new OpenApiParameter
+            {
+                Name = "$top",
+                In = ParameterLocation.Query,
+                Required = false,
+                Schema = new OpenApiSchema
+                {
+                    Type = "integer",
+                    Default = new OpenApiInteger(10)
+                },
+                Description = "Maximum number of records to return (default is 10)"
+            });
         }
         else if (method.Equals("POST", StringComparison.OrdinalIgnoreCase) || 
                  method.Equals("PUT", StringComparison.OrdinalIgnoreCase) ||
@@ -531,6 +682,15 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
             "MERGE" => OperationType.Head, // OpenAPI doesn't have MERGE, use HEAD
             _ => null
         };
+    }
+    
+    private void AddOperationToPath(OpenApiPathItem pathItem, string method, OpenApiOperation operation)
+    {
+        var operationType = GetOperationType(method);
+        if (operationType.HasValue)
+        {
+            pathItem.Operations[operationType.Value] = operation;
+        }
     }
     
     // Match the classes used in EnvironmentSettings

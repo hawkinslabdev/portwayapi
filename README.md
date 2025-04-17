@@ -25,6 +25,12 @@ A powerful, lightweight API gateway for SQL Server data access and service proxy
 
 ---
 
+## 🛣️ Roadmap
+
+[ ] Fix the webhook implementation, which now causes a 404.
+
+---
+
 ## 🛠️ Setup
 
 ### 1. Download the release

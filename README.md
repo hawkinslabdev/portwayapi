@@ -2,7 +2,7 @@
 
 A powerful, lightweight API gateway built for Windows Server. You can use it for granular SQL Server data access, and/or service proxying with environment awareness.
 
-![Screenshot of Swagger UI](https://github.com/hawkinslabdev/portwayapi/blob/a96ac4a8aacca879b59a69a370439f994c27b21d/Source/example.png)
+![Screenshot of Swagger UI](https://github.com/hawkinslabdev/portwayapi/blob/main/Source/example.png?raw=true)
 
 ## 🚀 Features
 - **Multiple Endpoint Types**

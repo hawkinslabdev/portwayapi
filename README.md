@@ -1,8 +1,8 @@
-# ✨ Portway API
+# ✨ Portway 
 
-A powerful, lightweight API gateway for SQL Server data access and service proxying with environment awareness.
+A powerful, lightweight API gateway built for Windows Server. You can use it for granular SQL Server data access, and/or service proxying with environment awareness.
 
-![Screenshot of Swagger UI](https://raw.githubusercontent.com/hawkinslabdev/portwayapi/refs/heads/main/Source/example.png)
+![Screenshot of Swagger UI](https://github.com/hawkinslabdev/portwayapi/blob/a96ac4a8aacca879b59a69a370439f994c27b21d/Source/example.png)
 
 ## 🚀 Features
 - **Multiple Endpoint Types**

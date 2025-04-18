@@ -27,8 +27,11 @@ public class TokenService
     public async Task<string> GenerateTokenAsync(string username)
     {
         // Generate a random token
-        string token = Guid.NewGuid().ToString();
-        
+        string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))
+            .Replace("+", "-") // Replace '+' with URL-safe '-'
+            .Replace("/", "_") // Replace '/' with URL-safe '_'
+            .TrimEnd('=');     // Remove padding '=' for URL safety       
+             
         // Generate salt for hashing
         byte[] salt = GenerateSalt();
         string saltString = Convert.ToBase64String(salt);
@@ -114,7 +117,7 @@ public class TokenService
     {
         using (var pbkdf2 = new Rfc2898DeriveBytes(token, salt, 10000, HashAlgorithmName.SHA256))
         {
-            byte[] hash = pbkdf2.GetBytes(32);
+            byte[] hash = pbkdf2.GetBytes(32); // 256 bits
             return Convert.ToBase64String(hash);
         }
     }

@@ -21,7 +21,7 @@ public class TokenAuthMiddleware
         if (path?.StartsWith("/swagger") == true || 
             path == "/" ||
             path == "/index.html" ||
-            path?.StartsWith("/health") == true ||
+            path == "/health/live" ||
             context.Request.Path.StartsWithSegments("/favicon.ico"))
         {
             await _next(context);
@@ -59,8 +59,10 @@ public class TokenAuthMiddleware
             await context.Response.WriteAsJsonAsync(new { error = "Invalid token", success = false });
             return;
         }
+    
+        // Token is valid, proceed with the request
+        Log.Debug("✅ Authorized request with valid token");
 
-        Log.Information("✅ Authorized request with valid token");
         await _next(context);
     }
 }

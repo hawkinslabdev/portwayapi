@@ -80,7 +80,11 @@ namespace TokenGenerator
         
         public async Task<string> GenerateTokenAsync(string username)
         {
-            string token = Guid.NewGuid().ToString();
+			// Generate a random token
+			string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))
+				.Replace("+", "-") // Replace '+' with URL-safe '-'
+				.Replace("/", "_") // Replace '/' with URL-safe '_'
+				.TrimEnd('=');     // Remove padding '=' for URL safety       
             
             byte[] salt = GenerateSalt();
             string saltString = Convert.ToBase64String(salt);

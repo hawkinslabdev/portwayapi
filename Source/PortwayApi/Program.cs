@@ -17,7 +17,6 @@ using PortwayApi.Middleware;
 using PortwayApi.Services;
 using System.Text;
 using System.Text.Json;
-using Microsoft.OpenApi.Models;
 
 // Create log directory
 Directory.CreateDirectory("log");
@@ -120,7 +119,7 @@ try
     builder.Services.AddEndpointsApiExplorer();
     
     // Add traffic logging
-    builder.Services.AddProxyTrafficLogging(builder.Configuration);
+    builder.Services.AddRequestTrafficLogging(builder.Configuration);
 
     // Define server name
     string serverName = Environment.MachineName;
@@ -224,13 +223,8 @@ try
             endpointMap);
     });
 
-    // Configure Swagger
+    // Configure Swagger using our centralized configuration
     var swaggerSettings = SwaggerConfiguration.ConfigureSwagger(builder);
-    builder.Services.AddSingleton<DynamicEndpointDocumentFilter>();
-    builder.Services.AddSingleton<DynamicEndpointOperationFilter>();
-    builder.Services.AddSingleton<CompositeEndpointDocumentFilter>();
-    builder.Services.AddSingleton<ComplexParameterFilter>();
-    builder.Services.AddSingleton<AlphabeticalEndpointSorter>();
 
     // Build the application
     var app = builder.Build();
@@ -239,7 +233,7 @@ try
     app.UseResponseCompression();
     app.UseExceptionHandlingMiddleware();
     app.UseSecurityHeaders();
-    app.UseProxyTrafficLogging();
+    app.UseRequestTrafficLogging();
     
     app.UseDefaultFiles(new DefaultFilesOptions
     {
@@ -247,65 +241,8 @@ try
     });
     app.UseStaticFiles();
 
-    // Configure Swagger UI
-    if(swaggerSettings.Enabled)
-    {
-        app.UseSwagger(options => {
-            // This ensures you get detailed error information
-            options.PreSerializeFilters.Add((swagger, httpReq) => {
-                // Use the BaseProtocol setting if provided, otherwise use the request's scheme
-                string scheme = swaggerSettings.BaseProtocol ?? httpReq.Scheme;
-                
-                // Force HTTPS in production or for public domains
-                string host = httpReq.Host.Value;
-                bool isProduction = !builder.Environment.IsDevelopment();
-                
-                if ((swaggerSettings.ForceHttpsInProduction && isProduction) || 
-                    (host.Contains(".") && !host.Contains("localhost") && !host.Contains("127.0.0.1"))) {
-                    scheme = "https";
-                    Log.Information("🔒 Forcing HTTPS in Swagger documentation: Environment={Env}, Host={Host}", 
-                        builder.Environment.EnvironmentName, host);
-                }
-                
-                // Also check for standard HTTPS headers
-                if (httpReq.Headers.ContainsKey("X-Forwarded-Proto") && 
-                    httpReq.Headers["X-Forwarded-Proto"] == "https") {
-                    scheme = "https";
-                }
-                
-                swagger.Servers = new List<OpenApiServer>
-                {
-                    new OpenApiServer { Url = $"{scheme}://{host}{httpReq.PathBase}" }
-                };
-            });
-        });
-
-        app.UseSwaggerUI(c =>
-        {
-            c.SwaggerEndpoint("/swagger/v1/swagger.json", $"{swaggerSettings.Title} {swaggerSettings.Version}");
-            c.RoutePrefix = swaggerSettings.RoutePrefix ?? "swagger";
-        
-            var docExpansion = SwaggerConfiguration.ParseEnum<Swashbuckle.AspNetCore.SwaggerUI.DocExpansion>(
-                swaggerSettings.DocExpansion, 
-                Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
-            c.DocExpansion(docExpansion);
-            
-            // Apply other settings
-            c.DefaultModelsExpandDepth(swaggerSettings.DefaultModelsExpandDepth);
-            
-            if (swaggerSettings.DisplayRequestDuration)
-                c.DisplayRequestDuration();
-                
-            if (swaggerSettings.EnableFilter)
-                c.EnableFilter();
-                
-            if (swaggerSettings.EnableDeepLinking)
-                c.EnableDeepLinking();
-                
-            if (swaggerSettings.EnableValidator)
-                c.EnableValidator();
-        });
-    }
+    // Configure Swagger UI using our centralized configuration
+    SwaggerConfiguration.ConfigureSwaggerUI(app, swaggerSettings);
 
     // Initialize Database & Create Default Token if needed
     using (var scope = app.Services.CreateScope())

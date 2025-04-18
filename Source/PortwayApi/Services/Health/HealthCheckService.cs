@@ -56,7 +56,7 @@ public class HealthCheckService
             var baseReport = await _healthCheckService.CheckHealthAsync(cancellationToken);
             var entries = new Dictionary<string, HealthReportEntry>(baseReport.Entries)
             {
-                ["DiskSpace"] = CheckDiskSpace()
+                ["Diskspace"] = CheckDiskSpace()
             };
 
             if (_httpClientFactory != null && _endpointMap != null)

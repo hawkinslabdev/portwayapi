@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Dapper;
+using System.Data;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -8,7 +9,6 @@ using PortwayApi.Classes;
 using PortwayApi.Helpers;
 using PortwayApi.Interfaces;
 using Serilog;
-using System.Data;
 
 namespace PortwayApi.Api;
 
@@ -64,7 +64,7 @@ public class EndpointController : ControllerBase
             // Process the catchall to determine what type of endpoint we're dealing with
             var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
             
-            Log.Information("🔄 Processing {Type} endpoint: {Name}", endpointType, endpointName);
+            Log.Debug("🔄 Processing {Type} endpoint: {Name}", endpointType, endpointName);
 
             // Check if environment is allowed
             if (!_environmentSettings.IsEnvironmentAllowed(env))
@@ -94,8 +94,9 @@ public class EndpointController : ControllerBase
         {
             Log.Error(ex, "❌ Error processing GET request for {Path}", Request.Path);
             return Problem(
-                detail: ex.Message, 
-                statusCode: StatusCodes.Status500InternalServerError
+                detail: $"Error processing. Please check the logs for more details.",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
             );
         }
     }
@@ -117,7 +118,7 @@ public class EndpointController : ControllerBase
             // Process the catchall to determine what type of endpoint we're dealing with
             var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
             
-            Log.Information("🔄 Processing {Type} endpoint: {Name} for POST", endpointType, endpointName);
+            Log.Debug("🔄 Processing {Type} endpoint: {Name} for POST", endpointType, endpointName);
 
             // Check if environment is allowed
             if (!_environmentSettings.IsEnvironmentAllowed(env))
@@ -163,8 +164,9 @@ public class EndpointController : ControllerBase
         {
             Log.Error(ex, "❌ Error processing POST request for {Path}", Request.Path);
             return Problem(
-                detail: ex.Message, 
-                statusCode: StatusCodes.Status500InternalServerError
+                detail: $"Error processing. Please check the logs for more details.",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
             );
         }
     }
@@ -186,7 +188,7 @@ public class EndpointController : ControllerBase
             // Process the catchall to determine what type of endpoint we're dealing with
             var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
             
-            Log.Information("🔄 Processing {Type} endpoint: {Name} for PUT", endpointType, endpointName);
+            Log.Debug("🔄 Processing {Type} endpoint: {Name} for PUT", endpointType, endpointName);
 
             // Check if environment is allowed
             if (!_environmentSettings.IsEnvironmentAllowed(env))
@@ -222,8 +224,9 @@ public class EndpointController : ControllerBase
         {
             Log.Error(ex, "❌ Error processing PUT request for {Path}", Request.Path);
             return Problem(
-                detail: ex.Message, 
-                statusCode: StatusCodes.Status500InternalServerError
+                detail: $"Error processing. Please check the logs for more details.",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
             );
         }
     }
@@ -246,7 +249,7 @@ public class EndpointController : ControllerBase
             // Process the catchall to determine what type of endpoint we're dealing with
             var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
             
-            Log.Information("🔄 Processing {Type} endpoint: {Name} for DELETE", endpointType, endpointName);
+            Log.Debug("🔄 Processing {Type} endpoint: {Name} for DELETE", endpointType, endpointName);
 
             // Check if environment is allowed
             if (!_environmentSettings.IsEnvironmentAllowed(env))
@@ -286,8 +289,9 @@ public class EndpointController : ControllerBase
         {
             Log.Error(ex, "❌ Error processing DELETE request for {Path}", Request.Path);
             return Problem(
-                detail: ex.Message, 
-                statusCode: StatusCodes.Status500InternalServerError
+                detail: $"Error processing. Please check the logs for more details.",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
             );
         }
     }
@@ -309,7 +313,7 @@ public class EndpointController : ControllerBase
             // Process the catchall to determine what type of endpoint we're dealing with
             var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
             
-            Log.Information("🔄 Processing {Type} endpoint: {Name} for PATCH", endpointType, endpointName);
+            Log.Debug("🔄 Processing {Type} endpoint: {Name} for PATCH", endpointType, endpointName);
 
             // Check if environment is allowed
             if (!_environmentSettings.IsEnvironmentAllowed(env))
@@ -331,8 +335,9 @@ public class EndpointController : ControllerBase
         {
             Log.Error(ex, "❌ Error processing PATCH request for {Path}", Request.Path);
             return Problem(
-                detail: ex.Message, 
-                statusCode: StatusCodes.Status500InternalServerError
+                detail: $"Error processing. Please check the logs for more details.",
+                statusCode: StatusCodes.Status500InternalServerError,
+                title: "Error"
             );
         }
     }
@@ -344,9 +349,6 @@ public class EndpointController : ControllerBase
     /// </summary>
     private (EndpointType Type, string Name, string RemainingPath) ParseEndpoint(string catchall)
     {
-        // Default to proxy endpoint type
-        var endpointType = EndpointType.Proxy;
-        
         // Split catchall into segments
         var segments = catchall.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length == 0)
@@ -405,7 +407,7 @@ public class EndpointController : ControllerBase
         string remainingPath,
         string method)
     {
-        Log.Information("🌍 Handling proxy request: {Endpoint} {Method}", endpointName, method);
+        Log.Debug("🌍 Handling proxy request: {Endpoint} {Method}", endpointName, method);
 
         try
         {
@@ -705,7 +707,7 @@ public class EndpointController : ControllerBase
                 ReceivedAt = DateTime.UtcNow
             });
 
-            Log.Information("✅ Webhook processed successfully: {WebhookId}, InsertedId: {InsertedId}", 
+            Log.Information("✅ Webhook processed successfully: {WebhookId} (ID: {InsertedId})", 
                 webhookId, insertedId);
 
             return Ok(new
@@ -719,7 +721,7 @@ public class EndpointController : ControllerBase
             Log.Error(ex, "❌ Error during webhook processing: {WebhookId}", webhookId);
             
             return Problem(
-                detail: $"Error processing webhook {webhookId}: {ex.Message}",
+                detail: $"Error processing. Please check the logs for more details.",
                 statusCode: StatusCodes.Status500InternalServerError,
                 title: "Error"
             );
@@ -890,7 +892,7 @@ public class EndpointController : ControllerBase
                     : BuildNextLink(env, endpointName, select, filter, orderby, top, skip)
             };
 
-            Log.Information("✅ Successfully processed query for {Endpoint}", endpointName);
+            Log.Debug("✅ Successfully processed query for {Endpoint}", endpointName);
             return Ok(response);
         }
         catch (Exception ex)
@@ -898,7 +900,7 @@ public class EndpointController : ControllerBase
             Log.Error(ex, "❌ Error during SQL query for endpoint: {EndpointName}", endpointName);
             
             return Problem(
-                detail: $"Error processing endpoint {endpointName}: {ex.Message}",
+                detail: $"Error processing. Please check the logs for more details.",
                 statusCode: StatusCodes.Status500InternalServerError,
                 title: "Error"
             );
@@ -915,66 +917,61 @@ public class EndpointController : ControllerBase
     {
         try
         {
-            // Check if this is a SQL endpoint - if not, return 404
+            // Check if this is a SQL endpoint
             var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
             if (!sqlEndpoints.ContainsKey(endpointName))
             {
-                return NotFound();
+                return NotFound(new { error = $"Endpoint '{endpointName}' not found" });
             }
 
-            // Step 1: Validate environment
+            // Validate environment
             var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
             {
-                return BadRequest(new { 
-                    error = $"Invalid or missing environment: {env}", 
-                    success = false 
-                });
+                return CreateErrorResponse($"Invalid or missing environment: {env}");
             }
 
-            // Step 2: Get endpoint configuration
+            // Get endpoint configuration
             var endpoint = sqlEndpoints[endpointName];
 
-            // Step 3: Check if the endpoint supports POST and has a procedure defined
+            // Check method support and procedure definition
             if (!(endpoint.Methods?.Contains("POST") ?? false))
             {
-                return StatusCode(405, new { 
-                    error = "Method not allowed",
-                    success = false
-                });
+                return CreateErrorResponse("This endpoint does not support POST operations", null, StatusCodes.Status405MethodNotAllowed);
             }
 
             if (string.IsNullOrEmpty(endpoint.Procedure))
             {
-                return BadRequest(new { 
-                    error = "This endpoint does not support insert operations (no procedure defined)", 
-                    success = false 
-                });
+                return CreateErrorResponse("This endpoint does not support insert operations (no procedure defined)");
             }
 
-            // Step 4: Prepare stored procedure parameters
+            // Validate input data against allowed columns
+            var (isValid, errorMessage) = ValidateSqlInput(data, endpoint.AllowedColumns ?? new List<string>());
+            if (!isValid)
+            {
+                return CreateErrorResponse(errorMessage!);
+            }
+
+            // Prepare stored procedure parameters
             var dynamicParams = new DynamicParameters();
-            
-            // Add method parameter (always needed for the standard procedure pattern)
             dynamicParams.Add("@Method", "INSERT");
             
-            // Add user parameter if available
             if (User.Identity?.Name != null)
             {
                 dynamicParams.Add("@UserName", User.Identity.Name);
             }
 
-            // Step 5: Extract and add data parameters from the request
+            // Extract and add parameters
             foreach (var property in data.EnumerateObject())
             {
                 dynamicParams.Add($"@{property.Name}", GetParameterValue(property.Value));
             }
 
-            // Step 6: Execute stored procedure
+            // Execute stored procedure
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
             
-            // Parse procedure name properly
+            // Parse procedure name
             string schema = "dbo";
             string procedureName = endpoint.Procedure;
             
@@ -991,27 +988,66 @@ public class EndpointController : ControllerBase
                 commandType: CommandType.StoredProcedure
             );
 
-            // Convert result to a list (could be empty if no rows returned)
             var resultList = result.ToList();
             
             Log.Information("✅ Successfully executed INSERT procedure for {Endpoint}", endpointName);
             
-            // Return the results, which typically includes the newly created ID
             return Ok(new { 
                 success = true,
                 message = "Record created successfully", 
                 result = resultList.FirstOrDefault() 
             });
         }
+        catch (SqlException sqlEx)
+        {
+            // Handle SQL exceptions with sanitized details
+            string errorMessage = "Database operation failed";
+            string errorDetail;
+            
+            switch (sqlEx.Number)
+            {
+                case 2627:
+                    errorDetail = "A record with the same unique identifier already exists";
+                    break;
+                case 547:
+                    errorDetail = "The operation violates database constraints";
+                    break;
+                case 2601:
+                    errorDetail = "A duplicate key value was attempted";
+                    break;
+                case 8114:
+                    errorDetail = "Invalid data format provided for one or more fields";
+                    break;
+                case 4060:
+                case 18456:
+                    errorDetail = "Database access error";
+                    Log.Error(sqlEx, "Database authentication error for {Endpoint}", endpointName);
+                    break;
+                default:
+                    errorDetail = $"Database error code: {sqlEx.Number}";
+                    Log.Error(sqlEx, "SQL Exception for {Endpoint}: {ErrorCode}, {ErrorMessage}", 
+                        endpointName, sqlEx.Number, sqlEx.Message);
+                    break;
+            }
+            
+            return CreateErrorResponse(errorMessage, errorDetail, StatusCodes.Status500InternalServerError);
+        }
         catch (Exception ex)
         {
-            Log.Error(ex, "❌ Error during INSERT for request: {EndpointName}", endpointName);
+            string errorMessage = "An error occurred while processing your request";
+            string? errorDetail = null;
             
-            return Problem(
-                detail: $"Error processing endpoint {endpointName}: {ex.Message}",
-                statusCode: StatusCodes.Status500InternalServerError,
-                title: "Error"
-            );
+            if (ex is JsonException)
+            {
+                errorMessage = "Invalid JSON format in request";
+                errorDetail = "The request body contains malformed JSON";
+                return CreateErrorResponse(errorMessage, errorDetail, StatusCodes.Status400BadRequest);
+            }
+            
+            Log.Error(ex, "Error processing request for endpoint {EndpointName}: {ErrorType}: {ErrorMessage}", 
+                endpointName, ex.GetType().Name, ex.Message);
+            
+            return CreateErrorResponse(errorMessage, null, StatusCodes.Status500InternalServerError);
         }
     }
 
@@ -1239,6 +1275,162 @@ public class EndpointController : ControllerBase
         {
             Log.Error(ex, "❌ Error processing DELETE for {Endpoint}", endpointName);
             throw;
+        }
+    }
+
+
+    /// <summary>
+    /// Helper method to create a standard error response
+    /// </summary>
+    private IActionResult CreateErrorResponse(string message, string? detail = null, int statusCode = 400)
+    {
+        var response = new
+        {
+            success = false,
+            error = message,
+            errorDetail = detail,
+            timestamp = DateTime.UtcNow
+        };
+        
+        return StatusCode(statusCode, response);
+    }
+
+    /// <summary>
+    /// Validates SQL input data against allowed columns
+    /// </summary>
+    private (bool IsValid, string? ErrorMessage) ValidateSqlInput(JsonElement data, List<string> allowedColumns)
+    {
+        // Check for empty request body
+        if (data.ValueKind == JsonValueKind.Undefined || data.ValueKind == JsonValueKind.Null)
+        {
+            return (false, "Request body cannot be empty");
+        }
+        
+        if (allowedColumns.Count > 0)
+        {
+            // Check if any properties in the request are not in allowed columns
+            var invalidProperties = new List<string>();
+            foreach (var property in data.EnumerateObject())
+            {
+                if (!allowedColumns.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    invalidProperties.Add(property.Name);
+                }
+            }
+            
+            if (invalidProperties.Any())
+            {
+                return (false, $"The following properties are not allowed: {string.Join(", ", invalidProperties)}");
+            }
+        }
+        
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Validates SQL parameters for update and delete operations
+    /// </summary>
+    private (bool IsValid, string? ErrorMessage) ValidateSqlParameters(JsonElement data, string operation)
+    {
+        // Check ID for update and delete operations
+        if (operation is "UPDATE" or "DELETE")
+        {
+            bool hasId = data.TryGetProperty("id", out _) ||
+                        data.TryGetProperty("Id", out _) ||
+                        data.TryGetProperty("ID", out _) ||
+                        data.TryGetProperty("RequestId", out _);
+                        
+            if (!hasId)
+            {
+                return (false, "ID field is required for this operation");
+            }
+        }
+        
+        // Validate data types for known fields (example for common fields)
+        foreach (var property in data.EnumerateObject())
+        {
+            // Check date fields
+            if (property.Name.EndsWith("Date", StringComparison.OrdinalIgnoreCase) && 
+                property.Value.ValueKind == JsonValueKind.String)
+            {
+                if (!DateTime.TryParse(property.Value.GetString(), out _))
+                {
+                    return (false, $"Invalid date format for field: {property.Name}");
+                }
+            }
+            
+            // Check numeric fields
+            if ((property.Name.EndsWith("Price", StringComparison.OrdinalIgnoreCase) || 
+                property.Name.EndsWith("Amount", StringComparison.OrdinalIgnoreCase)) && 
+                property.Value.ValueKind == JsonValueKind.String)
+            {
+                if (!decimal.TryParse(property.Value.GetString(), out _))
+                {
+                    return (false, $"Invalid numeric format for field: {property.Name}");
+                }
+            }
+        }
+        
+        return (true, null);
+    }
+
+    public class RequestValidationMiddleware
+    {
+        private readonly RequestDelegate _next;
+        private readonly ILogger<RequestValidationMiddleware> _logger;
+
+        public RequestValidationMiddleware(RequestDelegate next, ILogger<RequestValidationMiddleware> logger)
+        {
+            _next = next;
+            _logger = logger;
+        }
+
+        public async Task InvokeAsync(HttpContext context)
+        {
+            // Check content type for POST/PUT/PATCH
+            if (HttpMethods.IsPost(context.Request.Method) || 
+                HttpMethods.IsPut(context.Request.Method) || 
+                HttpMethods.IsPatch(context.Request.Method))
+            {
+                string? contentType = context.Request.ContentType;
+                
+                if (string.IsNullOrEmpty(contentType) || !contentType.Contains("application/json"))
+                {
+                    _logger.LogWarning("Invalid content type: {ContentType}", contentType);
+                    
+                    context.Response.StatusCode = StatusCodes.Status415UnsupportedMediaType;
+                    context.Response.ContentType = "application/json";
+                    
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        error = "Unsupported Media Type",
+                        detail = "Request must use application/json content type",
+                        success = false
+                    });
+                    
+                    return;
+                }
+                
+                // Check content length
+                if (context.Request.ContentLength > 10_485_760) // 10MB limit
+                {
+                    _logger.LogWarning("Request body too large: {ContentLength} bytes", context.Request.ContentLength);
+                    
+                    context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+                    context.Response.ContentType = "application/json";
+                    
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        error = "Payload Too Large",
+                        detail = "Request body exceeds maximum size of 10MB",
+                        success = false
+                    });
+                    
+                    return;
+                }
+            }
+
+            await _next(context);
         }
     }
     #endregion

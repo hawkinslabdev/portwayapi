@@ -35,7 +35,7 @@ public class EnvironmentSettingsProvider : IEnvironmentSettingsProvider
             var azure = await TryLoadFromAzureAsync(env);
             if (azure != null)
             {
-                Log.Information("✅ Successfully loaded environment {Env} from Azure Key Vault", env);
+                Log.Debug("✅ Successfully loaded environment {Env} from Azure Key Vault", env);
                 var secureConnectionString = SecureConnectionString(azure.ConnectionString!);
                 return (secureConnectionString, azure.ServerName!);
             }
@@ -44,7 +44,12 @@ public class EnvironmentSettingsProvider : IEnvironmentSettingsProvider
         // Fall back to local JSON
         Log.Debug("🔄 Attempting to load from local JSON files...");
         var local = LoadFromJson(env);
-        Log.Information("✅ Successfully loaded environment {Env} from local settings.json", env);
+        if (local == null)
+        {
+            Log.Error("❌ Failed to load environment settings for {Environment}", env);
+            throw new InvalidOperationException($"Failed to load environment settings for {env}");
+        }
+        Log.Debug("✅ Successfully loaded environment {Env} from local settings.json", env);
         var securedLocalConnectionString = SecureConnectionString(local.ConnectionString!);
         return (securedLocalConnectionString, local.ServerName!);
     }

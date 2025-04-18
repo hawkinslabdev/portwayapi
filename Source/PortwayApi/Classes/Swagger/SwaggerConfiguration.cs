@@ -30,7 +30,6 @@ public class SwaggerSettings
     public bool EnableDeepLinking { get; set; } = true;
     public bool EnableValidator { get; set; } = true;
     public bool ForceHttpsInProduction { get; set; } = true; // Always use HTTPS in production environments
-
 }
 
 public class ContactInfo
@@ -173,7 +172,8 @@ public static class SwaggerConfiguration
                 
                 // Add this line to resolve conflicting actions
                 c.ResolveConflictingActions(apiDescriptions => apiDescriptions.First());
-
+                
+                // Sort endpoints alphabetically
                 c.DocumentFilter<AlphabeticalEndpointSorter>();
             });
 
@@ -203,8 +203,28 @@ public static class SwaggerConfiguration
             
         app.UseSwagger(options => {
             options.PreSerializeFilters.Add((swagger, httpReq) => {
+                // Use the BaseProtocol setting if provided, otherwise use the request's scheme
+                string scheme = swaggerSettings.BaseProtocol ?? httpReq.Scheme;
+                
+                // Force HTTPS in production or for public domains
+                string host = httpReq.Host.Value;
+                bool isProduction = !app.Environment.IsDevelopment();
+                
+                if ((swaggerSettings.ForceHttpsInProduction && isProduction) || 
+                    (host.Contains(".") && !host.Contains("localhost") && !host.Contains("127.0.0.1"))) {
+                    scheme = "https";
+                    Log.Information("🔒 Forcing HTTPS in Swagger documentation: Environment={Env}, Host={Host}", 
+                        app.Environment.EnvironmentName, host);
+                }
+                
+                // Also check for standard HTTPS headers
+                if (httpReq.Headers.ContainsKey("X-Forwarded-Proto") && 
+                    httpReq.Headers["X-Forwarded-Proto"] == "https") {
+                    scheme = "https";
+                }
+                
                 swagger.Servers = new List<OpenApiServer> { 
-                    new OpenApiServer { Url = $"{httpReq.Scheme}://{httpReq.Host.Value}" } 
+                    new OpenApiServer { Url = $"{scheme}://{host}{httpReq.PathBase}" } 
                 };
             });
         });
@@ -280,4 +300,3 @@ public class ComplexParameterFilter : IParameterFilter
         }
     }
 }
-

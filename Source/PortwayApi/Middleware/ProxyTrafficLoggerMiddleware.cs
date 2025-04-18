@@ -1002,15 +1002,15 @@ public class SqliteTrafficLogStorage : ITrafficLogStorage
 /// <summary>
 /// Extension methods for setting up proxy traffic logging
 /// </summary>
-public static class ProxyTrafficLoggingExtensions
+public static class TrafficLoggingExtensions
 {
     /// <summary>
     /// Adds proxy traffic logging services to the service collection
     /// </summary>
-    public static IServiceCollection AddProxyTrafficLogging(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddRequestTrafficLogging(this IServiceCollection services, IConfiguration configuration)
     {
         // Bind options from configuration
-        var optionsSection = configuration.GetSection("ProxyTrafficLogging");
+        var optionsSection = configuration.GetSection("RequestTrafficLogging");
         services.Configure<ProxyTrafficLoggerOptions>(optionsSection);
         
         // Get options for setup
@@ -1050,7 +1050,7 @@ public static class ProxyTrafficLoggingExtensions
     /// <summary>
     /// Adds the proxy traffic logging middleware to the application pipeline
     /// </summary>
-    public static IApplicationBuilder UseProxyTrafficLogging(this IApplicationBuilder app)
+    public static IApplicationBuilder UseRequestTrafficLogging(this IApplicationBuilder app)
     {
         var options = app.ApplicationServices.GetService<IOptions<ProxyTrafficLoggerOptions>>();
         

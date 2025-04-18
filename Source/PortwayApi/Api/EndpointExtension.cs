@@ -5,13 +5,17 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using PortwayApi.Services;
 using Serilog;
+using Microsoft.AspNetCore.Authorization;
 
 public static class APIEndpointExtensions
 {
-    // Health Check Endpoints
+    /// <summary>
+    /// Maps health check endpoints with authentication
+    /// </summary>
     public static WebApplication MapHealthCheckEndpoints(this WebApplication app)
     {
-        app.MapGet("/health", async (HttpContext context, 
+        // Detailed health check - requires authentication
+        app.MapGet("/health", [Authorize] async (HttpContext context, 
                                      PortwayApi.Services.HealthCheckService healthService) =>
         {
             // Get cached health report
@@ -33,8 +37,10 @@ public static class APIEndpointExtensions
                 cache_expires_in = "15 seconds" 
             });
         })
-        .ExcludeFromDescription();
+        .ExcludeFromDescription()
+        .RequireAuthorization(); // Ensure authorization
 
+        // Basic liveness check - no authentication, but configurable
         app.MapGet("/health/live", async (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "public, max-age=5";
@@ -45,7 +51,8 @@ public static class APIEndpointExtensions
         })
         .ExcludeFromDescription();
 
-        app.MapGet("/health/details", async (HttpContext context, 
+        // Detailed health check with more information - requires authentication
+        app.MapGet("/health/details", [Authorize] async (HttpContext context, 
                                           PortwayApi.Services.HealthCheckService healthService) =>
         {
             // Get cached health report
@@ -84,7 +91,8 @@ public static class APIEndpointExtensions
             
             await context.Response.WriteAsJsonAsync(result);
         })
-        .ExcludeFromDescription();
+        .ExcludeFromDescription()
+        .RequireAuthorization(); // Ensure authorization
 
         return app;
     }

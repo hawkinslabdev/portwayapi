@@ -9,12 +9,18 @@ namespace PortwayApi.Api;
 public class ProxyConstraintAttribute : Attribute, IRouteConstraint
 {
     public bool Match(
-        HttpContext httpContext, 
-        IRouter route, 
+        HttpContext? httpContext, 
+        IRouter? route, 
         string routeKey, 
         RouteValueDictionary values, 
         RouteDirection routeDirection)
     {
+        // If httpContext is null, we can't make a decision
+        if (httpContext == null)
+        {
+            return false;
+        }
+
         // Extract the endpoint path from the route values
         if (!values.TryGetValue("catchall", out var catchallObj) || catchallObj == null)
         {

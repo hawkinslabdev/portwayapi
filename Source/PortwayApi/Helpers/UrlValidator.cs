@@ -191,7 +191,7 @@ public class UrlValidator
                 return false;
             }
             
-            Log.Information("✅ URL {Url} validated successfully", url);
+            Log.Debug("✅ URL {Url} validated successfully", url);
             return true;
         }
         catch (Exception ex)

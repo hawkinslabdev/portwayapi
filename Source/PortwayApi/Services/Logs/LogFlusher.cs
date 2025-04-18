@@ -15,7 +15,7 @@ public class LogFlusher : BackgroundService
             try
             {
                 await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
-                Log.Information("🔄 Performing periodic log flush");
+                Log.Debug("🔄 Performing periodic log flush");
                 Log.CloseAndFlush();
             }
             catch (OperationCanceledException)

@@ -49,8 +49,7 @@ public class StartupLogger : IHostedService
     private void LogApplicationStartup()
     {
         Log.Information("✅ Portway has started successfully");
-        Log.Information("🚀 Application is ready to handle requests");
-    }
+    }  
 
     private void LogEnvironmentInfo()
     {

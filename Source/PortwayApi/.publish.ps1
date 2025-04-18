@@ -64,5 +64,25 @@ $webConfigContent = @"
 $webConfigPath = "C:\Github\portwayapi\Deployment\PortwayApi\web.config"
 $webConfigContent | Out-File -FilePath $webConfigPath -Encoding UTF8
 
+# Ensure .gitignore exists
+$gitignorePath = "C:\Github\portwayapi\.gitignore"
+$logIgnoreRules = @(
+    "`n# Ignore log files",
+    "*.log",
+    "/logs/"
+)
+if (-not (Test-Path $gitignorePath)) {
+    New-Item -Path $gitignorePath -ItemType File -Force | Out-Null
+}
+$existingRules = Get-Content $gitignorePath -ErrorAction SilentlyContinue
+foreach ($rule in $logIgnoreRules) {
+    if ($existingRules -notcontains $rule) {
+        Add-Content -Path $gitignorePath -Value $rule
+    }
+}
+
+Write-Host ".gitignore updated to exclude log files and /logs/ directory"
+
+
 Write-Host "✅ Deployment complete. The application has been published to C:\Github\portwayapi\Deployment\PortwayApi"
 Write-Host "📄 web.config file generated at $webConfigPath"

@@ -1,4 +1,4 @@
-# ✨ Portway 
+# <img src="logo.svg" alt="GitHub logo" width="24" style="vertical-align: middle;"> Portway
 
 A powerful, lightweight API gateway built for Windows Server. You can use it for granular SQL Server data access, and/or service proxying with environment awareness.
 

@@ -16,12 +16,22 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
+		.disable-select {
+		  -webkit-user-select: none;  
+		  -moz-user-select: none;    
+		  -ms-user-select: none;      
+		  user-select: none;
+		}
     </style>
 </head>
 <body class="bg-white text-gray-900 min-h-screen flex items-center justify-center p-4">
     <div class="w-full max-w-4xl mx-auto space-y-12">
-        <header class="text-center">
-            <h1 class="text-5xl font-bold mb-4 pb-1 gradient-text">Portway</h1>
+        <header class="text-center disable-select">
+            <div class="flex items-center justify-center mb-4 pb-1">
+                <h1 class="text-5xl font-bold gradient-text">Portway</h1>
+				<img src="assets/img/logo.svg" alt="Portway Logo" class="h-[40px] ml-6 object-cover">
+
+            </div>
             <p class="text-xl text-gray-600 max-w-2xl mx-auto">
                 A friendly API gateway that simplifies your data integration.
             </p>
@@ -72,7 +82,7 @@
             </div>
         </div>
 
-        <footer class="text-center text-gray-500">
+        <footer class="text-center text-gray-500 disable-select">
             <p>Open Source • MIT License • Community Driven</p>
         </footer>
     </div>

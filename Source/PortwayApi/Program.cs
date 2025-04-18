@@ -116,10 +116,27 @@ try
 
     // Add services
     builder.Services.AddControllers();
+    builder.Services.AddResponseCaching(options =>
+    {
+        options.UseCaseSensitivePaths = true;
+        options.SizeLimit = 1024 * 1024 * 10; // 10 MB
+        options.MaximumBodySize = 1024 * 1024 * 10; // 10 MB
+    });
     builder.Services.AddEndpointsApiExplorer();
-    
-    // Add traffic logging
     builder.Services.AddRequestTrafficLogging(builder.Configuration);
+    builder.Services.AddHttpContextAccessor();
+
+    // Configure CORS
+    builder.Services.AddCors(options =>
+    {
+        options.AddPolicy("AllowAllOrigins",
+            builder =>
+            {
+                builder.AllowAnyOrigin()
+                       .AllowAnyMethod()
+                       .AllowAnyHeader();
+            });
+    });
 
     // Define server name
     string serverName = Environment.MachineName;
@@ -326,6 +343,20 @@ try
 
     // Use Token Authentication middleware
     app.UseTokenAuthentication();
+
+    // Use CORS middleware
+    app.UseCors(builder =>
+    {
+        builder.AllowAnyOrigin()
+               .AllowAnyMethod()
+               .AllowAnyHeader();
+    });
+
+    // Use caching middleware
+    app.UseResponseCaching();
+    app.UseAuthenticatedCaching();
+
+    // Use authorization middleware
     app.UseAuthorization();
 
     var forwardedHeadersOptions = new ForwardedHeadersOptions

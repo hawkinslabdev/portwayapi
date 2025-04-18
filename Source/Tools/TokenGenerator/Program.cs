@@ -15,10 +15,12 @@ namespace TokenGenerator
     public class AuthToken
     {
         public int Id { get; set; }
-        public string Username { get; set; } = string.Empty;
-        public string TokenHash { get; set; } = string.Empty;
-        public string TokenSalt { get; set; } = string.Empty;
+        public required string Username { get; set; } = $"user_{Guid.NewGuid().ToString("N").Substring(0, 8)}";
+        public required string TokenHash { get; set; } = string.Empty;
+        public required string TokenSalt { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? RevokedAt { get; set; } = null;
+        public bool IsActive => RevokedAt == null;
     }
 
     public class AuthDbContext : DbContext
@@ -27,13 +29,99 @@ namespace TokenGenerator
 
         public DbSet<AuthToken> Tokens { get; set; }
 
+        public void EnsureTablesCreated()
+        {
+            try
+            {
+                // First check if the table exists
+                bool tableExists = false;
+                try
+                {
+                    // Use ExecuteSqlRaw with proper result handling
+                    using var cmd = Database.GetDbConnection().CreateCommand();
+                    cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Tokens'";
+                    
+                    if (Database.GetDbConnection().State != System.Data.ConnectionState.Open)
+                        Database.GetDbConnection().Open();
+                        
+                    var result = cmd.ExecuteScalar();
+                    tableExists = Convert.ToInt32(result) > 0;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error checking if Tokens table exists");
+                    return;
+                }
+                
+                if (tableExists)
+                {
+                    // Table exists, check if it has the required column
+                    bool hasRequiredColumn = false;
+                    try
+                    {
+                        using var cmd = Database.GetDbConnection().CreateCommand();
+                        cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Tokens') WHERE name='TokenSalt'";
+                        var result = cmd.ExecuteScalar();
+                        hasRequiredColumn = Convert.ToInt32(result) > 0;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Error checking Tokens table schema");
+                        return;
+                    }
+                    
+                    if (hasRequiredColumn)
+                    {
+                        // Table exists with correct schema
+                        Log.Debug("Tokens table exists with correct schema");
+                        return;
+                    }
+                    
+                    // Table exists but with wrong schema, drop it
+                    Log.Information("Tokens table exists but with wrong schema, recreating...");
+                    try
+                    {
+                        Database.ExecuteSqlRaw("DROP TABLE IF EXISTS Tokens");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Error dropping Tokens table");
+                        return;
+                    }
+                }
+                
+                // Create the table with the correct schema
+                try
+                {
+                    Database.ExecuteSqlRaw(@"
+                        CREATE TABLE Tokens (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                            Username TEXT NOT NULL DEFAULT 'legacy',
+                            TokenHash TEXT NOT NULL DEFAULT '', 
+                            TokenSalt TEXT NOT NULL DEFAULT '',
+                            CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            RevokedAt DATETIME NULL
+                        )");
+                    
+                    Log.Information("Created new Tokens table with correct schema");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error creating Tokens table: {Message}", ex.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error ensuring Tokens table is created");
+            }
+        }
         
         public bool IsValidDatabase()
         {
             try
             {
-                
-                return Tokens.Any();
+                EnsureTablesCreated();
+                return true;
             }
             catch (Exception ex)
             {
@@ -66,7 +154,7 @@ namespace TokenGenerator
         {
             _dbContext = dbContext;
             
-            
+            // Ensure tokens directory exists
             _tokenFolderPath = !Path.IsPathRooted(config.TokensFolder) 
                 ? Path.GetFullPath(config.TokensFolder) 
                 : config.TokensFolder;
@@ -80,17 +168,20 @@ namespace TokenGenerator
         
         public async Task<string> GenerateTokenAsync(string username)
         {
-			// Generate a random token
-			string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))
-				.Replace("+", "-") // Replace '+' with URL-safe '-'
-				.Replace("/", "_") // Replace '/' with URL-safe '_'
-				.TrimEnd('=');     // Remove padding '=' for URL safety       
+            // Generate a random token
+            string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))
+                .Replace("+", "-") // Replace '+' with URL-safe '-'
+                .Replace("/", "_") // Replace '/' with URL-safe '_'
+                .TrimEnd('=');     // Remove padding '=' for URL safety       
             
+            // Generate salt for hashing
             byte[] salt = GenerateSalt();
             string saltString = Convert.ToBase64String(salt);
             
+            // Hash the token
             string hashedToken = HashToken(token, salt);
             
+            // Create a new token entry
             var tokenEntry = new AuthToken
             {
                 Username = username,
@@ -99,46 +190,82 @@ namespace TokenGenerator
                 CreatedAt = DateTime.UtcNow
             };
             
+            // Add to database
             _dbContext.Tokens.Add(tokenEntry);
             await _dbContext.SaveChangesAsync();
             
+            // Save token to file
             await SaveTokenToFileAsync(username, token);
             
             return token;
         }
 
-        public async Task<List<AuthToken>> GetAllTokensAsync()
+        public async Task<List<AuthToken>> GetActiveTokensAsync()
         {
-            return await _dbContext.Tokens.ToListAsync();
+            return await _dbContext.Tokens
+                .Where(t => t.RevokedAt == null)
+                .ToListAsync();
         }
 
         public async Task<bool> RevokeTokenAsync(int id)
         {
             var token = await _dbContext.Tokens.FindAsync(id);
             if (token == null)
-            {
                 return false;
-            }
-
+                
+            // Update the RevokedAt timestamp instead of deleting
+            token.RevokedAt = DateTime.UtcNow;
+            await _dbContext.SaveChangesAsync();
             
+            // Delete the token file if it exists
             string filePath = Path.Combine(_tokenFolderPath, $"{token.Username}.txt");
             if (File.Exists(filePath))
             {
-                File.Delete(filePath);
-                Log.Information("Deleted token file for {Username}", token.Username);
+                try 
+                {
+                    File.Delete(filePath);
+                    Log.Information("Deleted token file for {Username}", token.Username);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Could not delete token file for {Username}", token.Username);
+                }
             }
-
             
-            _dbContext.Tokens.Remove(token);
-            await _dbContext.SaveChangesAsync();
             return true;
+        }
+        
+        public async Task<bool> VerifyTokenAsync(string token)
+        {
+            // Get active tokens
+            var tokens = await _dbContext.Tokens
+                .Where(t => t.RevokedAt == null)
+                .ToListAsync();
+            
+            // Check each token
+            foreach (var storedToken in tokens)
+            {
+                // Convert stored salt from string to bytes
+                byte[] salt = Convert.FromBase64String(storedToken.TokenSalt);
+                
+                // Hash the provided token with the stored salt
+                string hashedToken = HashToken(token, salt);
+                
+                // Compare hashed tokens
+                if (hashedToken == storedToken.TokenHash)
+                {
+                    return true;
+                }
+            }
+            
+            return false;
         }
         
         private string HashToken(string token, byte[] salt)
         {
             using (var pbkdf2 = new Rfc2898DeriveBytes(token, salt, 10000, HashAlgorithmName.SHA256))
             {
-                byte[] hash = pbkdf2.GetBytes(32);
+                byte[] hash = pbkdf2.GetBytes(32); // 256 bits
                 return Convert.ToBase64String(hash);
             }
         }
@@ -157,7 +284,7 @@ namespace TokenGenerator
         {
             try
             {
-                
+                // Ensure tokens directory exists
                 if (!Directory.Exists(_tokenFolderPath))
                 {
                     Directory.CreateDirectory(_tokenFolderPath);
@@ -186,23 +313,24 @@ namespace TokenGenerator
     {
         static async Task Main(string[] args)
         {
-            
+            // Parse command-line arguments
             var options = ParseCommandLineArguments(args);
             
-            
+            // If help requested, show help and exit
             if (options.ShowHelp)
             {
                 DisplayHelp();
                 return;
             }
 
-            
+            // Configure logging
             Log.Logger = new LoggerConfiguration()
                 .WriteTo.Console()
                 .MinimumLevel.Information()
                 .CreateLogger();
 
-            Log.Information("Starting Token Generator...");
+            Log.Information("🔑 Portway Token Generator");
+            Log.Information("=================================");
 
             try
             {
@@ -227,7 +355,7 @@ namespace TokenGenerator
                     }
                 }
 
-                
+                // If username was provided as a command-line argument, generate token for that user
                 if (!string.IsNullOrWhiteSpace(options.Username))
                 {
                     await GenerateTokenForUserAsync(options.Username, serviceProvider);
@@ -342,7 +470,7 @@ namespace TokenGenerator
                         break;
                         
                     default:
-                        
+                        // If not a known option and no username set yet, assume it's a username
                         if (!arg.StartsWith("-") && string.IsNullOrWhiteSpace(options.Username))
                         {
                             options.Username = args[i];
@@ -357,7 +485,7 @@ namespace TokenGenerator
         static void DisplayMenu()
         {
             Console.WriteLine("===============================================");
-            Console.WriteLine("      PortwayApi Token Generator        ");
+            Console.WriteLine("      Portway Token Generator        ");
             Console.WriteLine("===============================================");
             Console.WriteLine("1. List all existing tokens");
             Console.WriteLine("2. Generate new token");
@@ -372,19 +500,18 @@ namespace TokenGenerator
             using var scope = serviceProvider.CreateScope();
             var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
 
-            var tokens = await tokenService.GetAllTokensAsync();
+            var tokens = await tokenService.GetActiveTokensAsync();
 
             if (tokens.Count == 0)
             {
-                Console.WriteLine("\nNo tokens found in the database.");
+                Console.WriteLine("\nNo active tokens found in the database.");
                 return;
             }
 
-            Console.WriteLine("\n=== Existing Tokens ===");
+            Console.WriteLine("\n=== Active Tokens ===");
             Console.WriteLine($"{"ID",-5} {"Username",-20} {"Created",-20} {"Token File",-15}");
             Console.WriteLine(new string('-', 60));
 
-            var config = scope.ServiceProvider.GetRequiredService<AppConfig>();
             string tokenFolderPath = tokenService.GetTokenFolderPath();
             
             foreach (var token in tokens)
@@ -405,7 +532,6 @@ namespace TokenGenerator
 
             using var scope = serviceProvider.CreateScope();
             var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
-            var config = scope.ServiceProvider.GetRequiredService<AppConfig>();
 
             try
             {
@@ -429,7 +555,7 @@ namespace TokenGenerator
 
         static async Task RevokeTokenAsync(IServiceProvider serviceProvider)
         {
-            
+            // Display current tokens first
             await ListAllTokensAsync(serviceProvider);
 
             Console.WriteLine("\n=== Revoke Token ===");
@@ -457,22 +583,18 @@ namespace TokenGenerator
 
         static async Task GenerateTokenForUserAsync(string username, IServiceProvider serviceProvider)
         {
-            Log.Information("Token Generator - Automated Mode");
-            Log.Information("=================================");
-
             try
             {                
                 using var scope = serviceProvider.CreateScope();
                 var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
                 var config = scope.ServiceProvider.GetRequiredService<AppConfig>();
 
-                Log.Information("Generating token for user: {Username}", username);
                 var token = await tokenService.GenerateTokenAsync(username);
                 
-                Log.Information("Token generation successful!");
+                Log.Information("✅ Token generation successful!");
                 Log.Information("Username: {Username}", username);
                 Log.Information("Token: {Token}", token);
-                Log.Information("Token file: {FilePath}", Path.GetFullPath(Path.Combine(config.TokensFolder, $"{username}.txt")));
+                Log.Information("Token file: {FilePath}", Path.Combine(tokenService.GetTokenFolderPath(), $"{username}.txt"));
             }
             catch (Exception ex)
             {
@@ -486,7 +608,7 @@ namespace TokenGenerator
             var services = new ServiceCollection();
             var config = LoadConfiguration();
             
-            
+            // Override with command-line options if provided
             if (!string.IsNullOrWhiteSpace(cliOptions.DatabasePath))
             {
                 config.DatabasePath = cliOptions.DatabasePath;
@@ -499,10 +621,10 @@ namespace TokenGenerator
                 Log.Information("Using tokens folder from command line: {Path}", config.TokensFolder);
             }
             
-            
+            // Register config as a singleton
             services.AddSingleton(config);
             
-            
+            // Ensure paths are absolute
             if (!Path.IsPathRooted(config.DatabasePath))
             {
                 config.DatabasePath = Path.GetFullPath(config.DatabasePath);
@@ -513,15 +635,15 @@ namespace TokenGenerator
                 config.TokensFolder = Path.GetFullPath(config.TokensFolder);
             }
             
-            
+            // Ensure tokens directory exists
             if (!Directory.Exists(config.TokensFolder))
             {
                 Directory.CreateDirectory(config.TokensFolder);
                 Log.Information("Created tokens directory at {Path}", config.TokensFolder);
             }
             
-            Log.Information("Database path: {DbPath}", config.DatabasePath);
-            Log.Information("Tokens folder: {TokensFolder}", config.TokensFolder);
+            Log.Debug("Database path: {DbPath}", config.DatabasePath);
+            Log.Debug("Tokens folder: {TokensFolder}", config.TokensFolder);
             
             services.AddDbContext<AuthDbContext>(options =>
                 options.UseSqlite($"Data Source={config.DatabasePath}"));
@@ -537,7 +659,7 @@ namespace TokenGenerator
             string configFileName = "appsettings.json";
             string configFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, configFileName);
             
-            
+            // Create default config if it doesn't exist
             if (!File.Exists(configFilePath))
             {
                 Log.Information("Configuration file not found. Creating default configuration.");
@@ -571,7 +693,7 @@ namespace TokenGenerator
                 Log.Warning(ex, "Error loading configuration. Using default values.");
             }
             
-            
+            // Ensure tokens folder path is absolute
             if (!Path.IsPathRooted(config.TokensFolder))
             {
                 config.TokensFolder = Path.GetFullPath(config.TokensFolder);
@@ -582,7 +704,7 @@ namespace TokenGenerator
         
         static void CreateDefaultConfig(string configFilePath)
         {
-            
+            // Ensure directory exists
             var directory = Path.GetDirectoryName(configFilePath);
             if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
             {
@@ -591,8 +713,8 @@ namespace TokenGenerator
             
             var defaultConfig = new AppConfig
             {
-                DatabasePath = "../../auth.db",  
-                TokensFolder = "tokens"       
+                DatabasePath = "../../auth.db",  // Default to parent of parent directory
+                TokensFolder = "tokens"          // Default to local tokens directory
             };
             
             try

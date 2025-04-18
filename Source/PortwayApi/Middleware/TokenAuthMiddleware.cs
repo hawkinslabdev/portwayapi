@@ -119,7 +119,7 @@ public class TokenAuthMiddleware
         }
 
         // Token is valid and has proper scopes, proceed
-        Log.Information("✅ Authorized {User} for {Method} {Path}", tokenDetails.Username, context.Request.Method, context.Request.Path);
+        Log.Debug("✅ Authorized {User} for {Method} {Path}", tokenDetails.Username, context.Request.Method, context.Request.Path);
         await _next(context);
     }
     

@@ -148,11 +148,11 @@ public class UrlValidator
             var uri = new Uri(url);
             string host = uri.Host.Split(':')[0];
             
-            Log.Information("🕵️ Validating URL: {Url}", url);
-            Log.Information("🏠 Host to validate: {Host}", host);
+            Log.Debug("🕵️ Validating URL: {Url}", url);
+            Log.Debug("🏠 Host to validate: {Host}", host);
             
             var addresses = Dns.GetHostAddresses(host);
-            Log.Information("🌐 Resolved Addresses: {Addresses}", 
+            Log.Debug("🌐 Resolved Addresses: {Addresses}", 
                 string.Join(", ", addresses.Select(a => a.ToString())));
             
             // Track blocked IPs for detailed logging

@@ -46,6 +46,7 @@ public class EndpointController : ControllerBase
     /// Handles GET requests to endpoints
     /// </summary>
     [HttpGet("{env}/{**catchall}")]
+    [ResponseCache(Duration = 300, VaryByQueryKeys = new[] { "*" })]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -565,7 +566,7 @@ public class EndpointController : ControllerBase
             // The Content-Length will be calculated automatically when writing the content
             await Response.WriteAsync(rewrittenContent);
 
-            Log.Information("✅ Proxy request completed: {Method} {Path} -> {StatusCode}", 
+            Log.Debug("✅ Proxy request completed: {Method} {Path} -> {StatusCode}", 
                 method, Request.Path, response.StatusCode);
 
             return new EmptyResult(); // The response has already been written
@@ -785,7 +786,7 @@ public class EndpointController : ControllerBase
         int skip)
     {
         var url = $"{Request.Scheme}://{Request.Host}{Request.Path}{Request.QueryString}";
-        Log.Information("📥 SQL Query Request: {Url}", url);
+        Log.Debug("📥 SQL Query Request: {Url}", url);
 
         try
         {

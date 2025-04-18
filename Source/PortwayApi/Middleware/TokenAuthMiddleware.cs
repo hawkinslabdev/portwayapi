@@ -1,5 +1,6 @@
 namespace PortwayApi.Middleware;
 
+using System.Security.Claims;
 using System.Text.Json;
 using PortwayApi.Auth;
 using Serilog;
@@ -21,7 +22,7 @@ public class TokenAuthMiddleware
         if (path?.StartsWith("/swagger") == true || 
             path == "/" ||
             path == "/index.html" ||
-            path == "/health/live" ||
+            path?.StartsWith("/health/live") == true ||
             context.Request.Path.StartsWithSegments("/favicon.ico"))
         {
             await _next(context);
@@ -29,11 +30,11 @@ public class TokenAuthMiddleware
         }
         
         // Continue with authentication logic
-        Log.Debug("🔀 Incoming request: {Path}", context.Request.Path);
+        Log.Debug("🔀 Incoming request: {Method} {Path}", context.Request.Method, context.Request.Path);
 
         if (!context.Request.Headers.TryGetValue("Authorization", out var providedToken))
         {
-            Log.Warning("❌ Authorization header missing.");
+            Log.Warning("❌ Authorization header missing for {Path}", context.Request.Path);
             context.Response.StatusCode = 401;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsJsonAsync(new { error = "Authentication required", success = false });
@@ -48,22 +49,119 @@ public class TokenAuthMiddleware
             tokenString = tokenString.Substring("Bearer ".Length).Trim();
         }
 
-        // Validate token
+        // Extract endpoint name from request path
+        string? endpointName = ExtractEndpointName(context.Request.Path);
+        
+        // First validate token existence and active status
         bool isValid = await tokenService.VerifyTokenAsync(tokenString);
 
         if (!isValid)
         {
-            Log.Warning("❌ Invalid token provided");
-            context.Response.StatusCode = 403;
+            Log.Warning("❌ Invalid or expired token used for {Path}", context.Request.Path);
+            context.Response.StatusCode = 401;
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsJsonAsync(new { error = "Invalid token", success = false });
+            await context.Response.WriteAsJsonAsync(new { error = "Invalid or expired token", success = false });
             return;
         }
-    
-        // Token is valid, proceed with the request
-        Log.Debug("✅ Authorized request with valid token");
+        
+        // Get token details for context and scoped access check
+        var tokenDetails = await tokenService.GetTokenDetailsByTokenAsync(tokenString);
+        if (tokenDetails == null)
+        {
+            Log.Error("⚠️ Token verified but details could not be retrieved");
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new { error = "Authentication error", success = false });
+            return;
+        }
+        
+        // Store token info in HttpContext.Items for potential use downstream
+        context.Items["TokenInfo"] = new
+        {
+            Username = tokenDetails.Username,
+            Scopes = tokenDetails.AllowedScopes,
+            ExpiresAt = tokenDetails.ExpiresAt
+        };
+        
+        // Set username claim in HttpContext.User.Identity for easy access elsewhere
+        var identity = new ClaimsIdentity("Token");
+        identity.AddClaim(new Claim(ClaimTypes.Name, tokenDetails.Username));
+        
+        // Add scopes as claims for potential authorization policies
+        foreach (var scope in tokenDetails.GetScopesList())
+        {
+            identity.AddClaim(new Claim("scope", scope));
+        }
+        
+        // Set the principal
+        context.User = new ClaimsPrincipal(identity);
+        
+        // Check endpoint permissions if endpoint name was successfully extracted
+        if (!string.IsNullOrEmpty(endpointName))
+        {
+            bool hasEndpointAccess = tokenDetails.HasAccessToEndpoint(endpointName);
+            
+            if (!hasEndpointAccess)
+            {
+                Log.Warning("❌ Token lacks permission for endpoint {Endpoint}. Available scopes: {Scopes}", 
+                    endpointName, tokenDetails.AllowedScopes);
+                
+                context.Response.StatusCode = 403;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(new { 
+                    error = $"Access denied to endpoint '{endpointName}'", 
+                    availableScopes = tokenDetails.AllowedScopes,
+                    requestedEndpoint = endpointName,
+                    success = false 
+                });
+                return;
+            }
+        }
 
+        // Token is valid and has proper scopes, proceed
+        Log.Information("✅ Authorized {User} for {Method} {Path}", tokenDetails.Username, context.Request.Method, context.Request.Path);
         await _next(context);
+    }
+    
+    /// <summary>
+    /// Extract the endpoint name from the request path
+    /// </summary>
+    private string? ExtractEndpointName(PathString path)
+    {
+        // Parse patterns like:
+        // /api/{env}/{endpointName}
+        // /api/{env}/{endpointName}/{id}
+        // /api/{env}/composite/{endpointName}
+        // /webhook/{env}/{webhookId}
+        
+        var segments = path.Value?.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments == null || segments.Length < 3)
+            return null;
+            
+        if (segments[0].Equals("api", StringComparison.OrdinalIgnoreCase))
+        {
+            // For regular endpoints: /api/{env}/{endpointName}
+            if (segments.Length >= 3 && !segments[2].Equals("composite", StringComparison.OrdinalIgnoreCase))
+            {
+                return segments[2];
+            }
+            
+            // For composite endpoints: /api/{env}/composite/{endpointName}
+            if (segments.Length >= 4 && segments[2].Equals("composite", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"composite/{segments[3]}";
+            }
+        }
+        else if (segments[0].Equals("webhook", StringComparison.OrdinalIgnoreCase))
+        {
+            // For webhook endpoints: /webhook/{env}/{webhookName}
+            if (segments.Length >= 3)
+            {
+                return $"webhook/{segments[2]}";
+            }
+        }
+        
+        return null;
     }
 }
 

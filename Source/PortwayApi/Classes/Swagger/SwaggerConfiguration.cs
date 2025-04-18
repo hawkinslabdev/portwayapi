@@ -61,7 +61,7 @@ public static class SwaggerConfiguration
             if (section.Exists())
             {
                 section.Bind(swaggerSettings);
-                Log.Information("✅ Swagger configuration loaded from appsettings.json");
+                Log.Debug("✅ Swagger configuration loaded from appsettings.json");
             }
             else
             {
@@ -134,18 +134,6 @@ public static class SwaggerConfiguration
                     }
                 });
 
-                // Add XML comments for better documentation
-                var xmlFile = $"{typeof(Program).Assembly.GetName().Name}.xml";
-                var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
-                if (File.Exists(xmlPath))
-                {
-                    c.IncludeXmlComments(xmlPath);
-                }
-                else
-                {
-                    Log.Warning($"⚠️ XML comments file '{xmlFile}' not found. Swagger documentation may be incomplete.");
-                }
-
                 // Add custom schema filter for recursive types
                 c.SchemaFilter<SwaggerSchemaFilter>();
                 
@@ -186,7 +174,7 @@ public static class SwaggerConfiguration
             builder.Services.AddSingleton<DynamicEndpointOperationFilter>();
             builder.Services.AddSingleton<AlphabeticalEndpointSorter>();
             
-            Log.Information("✅ Swagger services registered successfully");
+            Log.Debug("✅ Swagger services registered successfully");
         }
         else
         {

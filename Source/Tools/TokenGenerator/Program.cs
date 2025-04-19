@@ -20,7 +20,13 @@ namespace TokenGenerator
         public required string TokenSalt { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime? RevokedAt { get; set; } = null;
-        public bool IsActive => RevokedAt == null;
+        
+        // Added missing properties that exist in the PortwayAPI model
+        public DateTime? ExpiresAt { get; set; } = null;
+        public string AllowedScopes { get; set; } = "*"; // Default to full access
+        public string Description { get; set; } = string.Empty;
+        
+        public bool IsActive => RevokedAt == null && (ExpiresAt == null || ExpiresAt > DateTime.UtcNow);
     }
 
     public class AuthDbContext : DbContext
@@ -55,14 +61,14 @@ namespace TokenGenerator
                 
                 if (tableExists)
                 {
-                    // Table exists, check if it has the required column
-                    bool hasRequiredColumn = false;
+                    // Table exists, check if it has the required columns
+                    bool hasAllRequiredColumns = false;
                     try
                     {
                         using var cmd = Database.GetDbConnection().CreateCommand();
-                        cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Tokens') WHERE name='TokenSalt'";
+                        cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Tokens') WHERE name='AllowedScopes'";
                         var result = cmd.ExecuteScalar();
-                        hasRequiredColumn = Convert.ToInt32(result) > 0;
+                        hasAllRequiredColumns = Convert.ToInt32(result) > 0;
                     }
                     catch (Exception ex)
                     {
@@ -70,27 +76,37 @@ namespace TokenGenerator
                         return;
                     }
                     
-                    if (hasRequiredColumn)
+                    if (hasAllRequiredColumns)
                     {
                         // Table exists with correct schema
                         Log.Debug("Tokens table exists with correct schema");
                         return;
                     }
                     
-                    // Table exists but with wrong schema, drop it
-                    Log.Information("Tokens table exists but with wrong schema, recreating...");
+                    // Table exists but with wrong schema, add missing columns
+                    Log.Information("Tokens table exists but missing some columns, updating schema...");
                     try
                     {
-                        Database.ExecuteSqlRaw("DROP TABLE IF EXISTS Tokens");
+                        // Add missing AllowedScopes column
+                        Database.ExecuteSqlRaw("ALTER TABLE Tokens ADD COLUMN AllowedScopes TEXT NOT NULL DEFAULT '*'");
+                        
+                        // Add missing ExpiresAt column
+                        Database.ExecuteSqlRaw("ALTER TABLE Tokens ADD COLUMN ExpiresAt DATETIME NULL");
+                        
+                        // Add missing Description column
+                        Database.ExecuteSqlRaw("ALTER TABLE Tokens ADD COLUMN Description TEXT NOT NULL DEFAULT ''");
+                        
+                        Log.Information("Successfully updated Tokens table schema");
+                        return;
                     }
                     catch (Exception ex)
                     {
-                        Log.Error(ex, "Error dropping Tokens table");
+                        Log.Error(ex, "Error updating Tokens table schema: {Message}", ex.Message);
                         return;
                     }
                 }
                 
-                // Create the table with the correct schema
+                // Create the table with the complete schema
                 try
                 {
                     Database.ExecuteSqlRaw(@"
@@ -100,10 +116,13 @@ namespace TokenGenerator
                             TokenHash TEXT NOT NULL DEFAULT '', 
                             TokenSalt TEXT NOT NULL DEFAULT '',
                             CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                            RevokedAt DATETIME NULL
+                            RevokedAt DATETIME NULL,
+                            ExpiresAt DATETIME NULL,
+                            AllowedScopes TEXT NOT NULL DEFAULT '*',
+                            Description TEXT NOT NULL DEFAULT ''
                         )");
                     
-                    Log.Information("Created new Tokens table with correct schema");
+                    Log.Information("Created new Tokens table with complete schema");
                 }
                 catch (Exception ex)
                 {
@@ -166,8 +185,30 @@ namespace TokenGenerator
             }
         }
         
-        public async Task<string> GenerateTokenAsync(string username)
+        public async Task<string> GenerateTokenAsync(string username, string description = "")
         {
+            // Check if a token for this username already exists
+            string tokenFilePath = Path.Combine(_tokenFolderPath, $"{username}.txt");
+            if (File.Exists(tokenFilePath))
+            {
+                Log.Warning("⚠️ A token file for user '{Username}' already exists at '{Path}'", username, tokenFilePath);
+                Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"WARNING: A token file for user '{username}' already exists.");
+                Console.WriteLine($"Location: {tokenFilePath}");
+                Console.WriteLine("Do you want to generate a new token and overwrite the existing file? (y/n)");
+                Console.ResetColor();
+                
+                string? response = Console.ReadLine()?.Trim().ToLower();
+                if (response != "y" && response != "yes")
+                {
+                    Log.Information("Token generation canceled by user");
+                    throw new OperationCanceledException("Token generation canceled by user");
+                }
+                
+                Log.Information("User confirmed overwriting existing token file");
+            }
+            
             // Generate a random token
             string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))
                 .Replace("+", "-") // Replace '+' with URL-safe '-'
@@ -187,7 +228,9 @@ namespace TokenGenerator
                 Username = username,
                 TokenHash = hashedToken,
                 TokenSalt = saltString,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                AllowedScopes = "*", // Default to full access
+                Description = description
             };
             
             // Add to database
@@ -203,7 +246,7 @@ namespace TokenGenerator
         public async Task<List<AuthToken>> GetActiveTokensAsync()
         {
             return await _dbContext.Tokens
-                .Where(t => t.RevokedAt == null)
+                .Where(t => t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > DateTime.UtcNow))
                 .ToListAsync();
         }
 
@@ -239,7 +282,7 @@ namespace TokenGenerator
         {
             // Get active tokens
             var tokens = await _dbContext.Tokens
-                .Where(t => t.RevokedAt == null)
+                .Where(t => t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > DateTime.UtcNow))
                 .ToListAsync();
             
             // Check each token
@@ -292,7 +335,23 @@ namespace TokenGenerator
                 }
                 
                 string filePath = Path.Combine(_tokenFolderPath, $"{username}.txt");
-                await File.WriteAllTextAsync(filePath, token);
+                
+                // Create a more informative token file with usage instructions
+                var currentWindowsUser = Environment.UserName;
+                var tokenInfo = new
+                {
+                    Username = username,
+                    Token = token,
+                    AllowedScopes = "*", // Default to full access
+                    CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
+                    Description = $"Generated by {currentWindowsUser}",
+                    Usage = "Use this token in the Authorization header as: Bearer " + token
+                };
+                
+                var options = new JsonSerializerOptions { WriteIndented = true };
+                string tokenJson = JsonSerializer.Serialize(tokenInfo, options);
+                await File.WriteAllTextAsync(filePath, tokenJson);
+                
                 Log.Information("Token file saved to {FilePath}", filePath);
             }
             catch (Exception ex)
@@ -395,6 +454,12 @@ namespace TokenGenerator
                         Console.Clear();
                     }
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // Operation was canceled by user, exit gracefully
+                Console.WriteLine("Operation canceled. Press any key to exit...");
+                Console.ReadKey();
             }
             catch (Exception ex)
             {
@@ -546,6 +611,11 @@ namespace TokenGenerator
                 
                 Console.WriteLine($"Token file: {Path.Combine(tokenFolderPath, $"{username}.txt")}");
             }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("\nToken generation canceled.");
+                throw;
+            }
             catch (Exception ex)
             {
                 Log.Error(ex, "Error generating token: {ErrorMessage}", ex.Message);
@@ -596,6 +666,11 @@ namespace TokenGenerator
                 Log.Information("Token: {Token}", token);
                 Log.Information("Token file: {FilePath}", Path.Combine(tokenService.GetTokenFolderPath(), $"{username}.txt"));
             }
+            catch (OperationCanceledException)
+            {
+                Log.Information("Token generation canceled by user");
+                throw;
+            }
             catch (Exception ex)
             {
                 Log.Error(ex, "Error generating token: {ErrorMessage}", ex.Message);
@@ -628,6 +703,49 @@ namespace TokenGenerator
             if (!Path.IsPathRooted(config.DatabasePath))
             {
                 config.DatabasePath = Path.GetFullPath(config.DatabasePath);
+            }
+            
+            // Check if database is in parent directory (../auth.db or ../../auth.db)
+            string parentDbPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "auth.db"));
+            string parentParentDbPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "auth.db"));
+            string appDbPath = "";
+            
+            if (File.Exists(parentParentDbPath))
+            {
+                appDbPath = parentParentDbPath;
+                var parentParentDir = Path.GetDirectoryName(parentParentDbPath);
+                
+                Log.Information("Found database in parent's parent directory: {DbPath}", parentParentDbPath);
+                
+                // Check if tokens folder exists in the same directory
+                string parentParentTokensPath = Path.Combine(parentParentDir!, "tokens");
+                if (Directory.Exists(parentParentTokensPath))
+                {
+                    config.TokensFolder = parentParentTokensPath;
+                    Log.Information("Using tokens folder from parent's parent directory: {TokensFolder}", parentParentTokensPath);
+                }
+            }
+            else if (File.Exists(parentDbPath))
+            {
+                appDbPath = parentDbPath;
+                var parentDir = Path.GetDirectoryName(parentDbPath);
+                
+                Log.Information("Found database in parent directory: {DbPath}", parentDbPath);
+                
+                // Check if tokens folder exists in the same directory
+                string parentTokensPath = Path.Combine(parentDir!, "tokens");
+                if (Directory.Exists(parentTokensPath))
+                {
+                    config.TokensFolder = parentTokensPath;
+                    Log.Information("Using tokens folder from parent directory: {TokensFolder}", parentTokensPath);
+                }
+            }
+            
+            // Use found database if not explicitly specified by user
+            if (!string.IsNullOrEmpty(appDbPath) && string.IsNullOrEmpty(cliOptions.DatabasePath))
+            {
+                config.DatabasePath = appDbPath;
+                Log.Information("Using database found in application directory: {DbPath}", appDbPath);
             }
             
             if (!Path.IsPathRooted(config.TokensFolder))
@@ -691,12 +809,6 @@ namespace TokenGenerator
             catch (Exception ex)
             {
                 Log.Warning(ex, "Error loading configuration. Using default values.");
-            }
-            
-            // Ensure tokens folder path is absolute
-            if (!Path.IsPathRooted(config.TokensFolder))
-            {
-                config.TokensFolder = Path.GetFullPath(config.TokensFolder);
             }
             
             return config;

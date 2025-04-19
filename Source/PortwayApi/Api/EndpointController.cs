@@ -1,10 +1,15 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Caching.Memory;
+
 using Dapper;
 using System.Data;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using PortwayApi.Classes;
 using PortwayApi.Helpers;
 using PortwayApi.Interfaces;
@@ -400,8 +405,11 @@ public class EndpointController : ControllerBase
     }
 
     /// <summary>
-    /// Handles proxy requests for any HTTP method
+    /// Handles proxy requests for any HTTP method with request caching
     /// </summary>
+    private static readonly MemoryCache _proxyCache = new MemoryCache(new MemoryCacheOptions());
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> _cacheLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
+
     private async Task<IActionResult> HandleProxyRequest(
         string env,
         string endpointName,
@@ -447,129 +455,115 @@ public class EndpointController : ControllerBase
                 return StatusCode(403);
             }
 
-            // Create HttpClient
-            var client = _httpClientFactory.CreateClient("ProxyClient");
-
-            // Create request message
-            var requestMessage = new HttpRequestMessage(
-                new HttpMethod(method), 
-                fullUrl
-            );
-
-            // Copy request body for methods that can have body content
-            if (HttpMethods.IsPost(method) ||
-                HttpMethods.IsPut(method) ||
-                HttpMethods.IsPatch(method) ||
-                HttpMethods.IsDelete(method))
+            // For GET requests, try to use cache
+            if (method.Equals("GET", StringComparison.OrdinalIgnoreCase))
             {
-                // Enable buffering to allow multiple reads
-                Request.EnableBuffering();
+                // Create a cache key based on the request details
+                string cacheKey = CreateCacheKey(env, endpointName, remainingPath, queryString, Request.Headers);
                 
-                // Read the request body
-                var memoryStream = new MemoryStream();
-                await Request.Body.CopyToAsync(memoryStream);
-                
-                // Reset position for potential downstream middleware
-                memoryStream.Position = 0;
-                Request.Body.Position = 0;
-                
-                // Set the request content
-                requestMessage.Content = new StreamContent(memoryStream);
-                
-                // Copy content type header if present
-                if (Request.ContentType != null)
+                // Try to get from cache first (without lock)
+                if (_proxyCache.TryGetValue(cacheKey, out ProxyCacheEntry? cacheEntry) && cacheEntry != null)
                 {
-                    requestMessage.Content.Headers.ContentType = 
-                        new System.Net.Http.Headers.MediaTypeHeaderValue(Request.ContentType);
+                    Log.Debug("📋 Cache hit for proxy request: {Endpoint}, URL: {Url}", endpointName, fullUrl);
+                    
+                    // Apply cached headers and status code
+                    foreach (var header in cacheEntry.Headers)
+                    {
+                        Response.Headers[header.Key] = header.Value;
+                    }
+                    
+                    Response.StatusCode = cacheEntry.StatusCode;
+                    
+                    // Write cached content
+                    await Response.WriteAsync(cacheEntry.Content);
+                    
+                    return new EmptyResult(); // Response already written
                 }
-            }
-
-            // Copy headers
-            foreach (var header in Request.Headers)
-            {
-                // Skip certain headers that shouldn't be proxied
-                if (header.Key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
-                    header.Key.Equals("Connection", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
+                
+                // Get or create a lock for this cache key
+                var cacheLock = _cacheLocks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
+                
+                // Acquire lock to prevent duplicate requests for the same resource
+                await cacheLock.WaitAsync();
                 try
                 {
-                    if (header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-                        continue; // Already handled for request content
-
-                    requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
-                }
-                catch (Exception ex)
-                {
-                    Log.Warning(ex, "Could not add header {HeaderKey}", header.Key);
-                }
-            }
-
-            // Add custom headers
-            requestMessage.Headers.Add("DatabaseName", env);
-            requestMessage.Headers.Add("ServerName", Environment.MachineName);
-
-            // Send the request
-            var response = await client.SendAsync(requestMessage);
-
-            // Copy response headers
-            foreach (var header in response.Headers)
-            {
-                if (!header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
-                {
-                    Response.Headers[header.Key] = header.Value.ToArray();
-                }
-            }
-
-            // Copy content headers, but exclude Content-Length
-            if (response.Content != null)
-            {
-                foreach (var header in response.Content.Headers)
-                {
-                    if (!header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+                    // Double-check cache after acquiring lock
+                    if (_proxyCache.TryGetValue(cacheKey, out cacheEntry) && cacheEntry != null)
                     {
-                        Response.Headers[header.Key] = header.Value.ToArray();
+                        Log.Debug("📋 Cache hit after lock for proxy request: {Endpoint}", endpointName);
+                        
+                        // Apply cached headers and status code
+                        foreach (var header in cacheEntry.Headers)
+                        {
+                            Response.Headers[header.Key] = header.Value;
+                        }
+                        
+                        Response.StatusCode = cacheEntry.StatusCode;
+                        
+                        // Write cached content
+                        await Response.WriteAsync(cacheEntry.Content);
+                        
+                        return new EmptyResult(); // Response already written
                     }
+                    
+                    Log.Debug("🔍 Cache miss for proxy request: {Endpoint}, URL: {Url}", endpointName, fullUrl);
+                    
+                    // Continue with normal proxy process for cache miss
+                    var responseDetails = await ExecuteProxyRequest(method, fullUrl, env, endpointConfig, endpointName);
+                    
+                    // For successful responses, store in cache
+                    if (responseDetails.IsSuccessful)
+                    {
+                        // Determine cache duration - default to 5 minutes if not specified
+                        TimeSpan cacheDuration = TimeSpan.FromMinutes(5);
+                        
+                        // Check for Cache-Control max-age directive
+                        if (responseDetails.Headers.TryGetValue("Cache-Control", out var cacheControl))
+                        {
+                            var maxAgeMatch = Regex.Match(cacheControl, @"max-age=(\d+)");
+                            if (maxAgeMatch.Success && int.TryParse(maxAgeMatch.Groups[1].Value, out int maxAge))
+                            {
+                                cacheDuration = TimeSpan.FromSeconds(maxAge);
+                            }
+                        }
+                        
+                        // Store response in cache
+                        var entry = new ProxyCacheEntry
+                        {
+                            Content = responseDetails.Content,
+                            Headers = responseDetails.Headers,
+                            StatusCode = responseDetails.StatusCode
+                        };
+                        
+                        var cacheOptions = new MemoryCacheEntryOptions()
+                            .SetAbsoluteExpiration(cacheDuration)
+                            .RegisterPostEvictionCallback((key, value, reason, state) => 
+                            {
+                                // Clean up the lock when the cache entry is removed
+                                if (_cacheLocks.TryRemove((string)key, out var _))
+                                {
+                                    Log.Debug("🧹 Removed lock for expired cache entry: {Key}", key);
+                                }
+                            });
+                        
+                        _proxyCache.Set(cacheKey, entry, cacheOptions);
+                        Log.Debug("💾 Cached proxy response for: {Endpoint} ({Duration} seconds)", 
+                            endpointName, cacheDuration.TotalSeconds);
+                    }
+                    
+                    return new EmptyResult(); // Response already written
+                }
+                finally
+                {
+                    cacheLock.Release();
                 }
             }
-
-            // Set status code
-            Response.StatusCode = (int)response.StatusCode;
-
-            // Read and potentially rewrite response content
-            var originalContent = response.Content != null
-                ? await response.Content.ReadAsStringAsync()
-                : string.Empty;
-
-            // URL rewriting with your existing code
-            if (!Uri.TryCreate(endpointConfig.Url, UriKind.Absolute, out var originalUri))
+            else
             {
-                Log.Warning("❌ Could not parse endpoint URL as URI: {Url}", endpointConfig.Url);
-                return StatusCode(500);
+                // For non-GET requests, just execute the proxy request without caching
+                await ExecuteProxyRequest(method, fullUrl, env, endpointConfig, endpointName);
+                return new EmptyResult(); // Response already written
             }
-
-            var originalHost = $"{originalUri.Scheme}://{originalUri.Host}:{originalUri.Port}";
-            var originalPath = originalUri.AbsolutePath.TrimEnd('/');
-
-            // Proxy path = /api/{env}/{endpoint}
-            var proxyHost = $"{Request.Scheme}://{Request.Host}";
-            var proxyPath = $"/api/{env}/{endpointName}";
-
-            // Apply URL rewriting
-            var rewrittenContent = UrlRewriter.RewriteUrl(
-                originalContent, 
-                originalHost, 
-                originalPath, 
-                proxyHost, 
-                proxyPath);
-
-            // The Content-Length will be calculated automatically when writing the content
-            await Response.WriteAsync(rewrittenContent);
-
-            Log.Debug("✅ Proxy request completed: {Method} {Path} -> {StatusCode}", 
-                method, Request.Path, response.StatusCode);
-
-            return new EmptyResult(); // The response has already been written
         }
         catch (Exception ex)
         {
@@ -581,6 +575,198 @@ public class EndpointController : ControllerBase
                 title: "Error"
             );
         }
+    }
+
+    /// <summary>
+    /// Cache entry for proxy responses
+    /// </summary>
+    private class ProxyCacheEntry
+    {
+        public string Content { get; set; } = string.Empty;
+        public Dictionary<string, string> Headers { get; set; } = new Dictionary<string, string>();
+        public int StatusCode { get; set; } = 200;
+    }
+
+    /// <summary>
+    /// Creates a cache key based on request details
+    /// </summary>
+    private string CreateCacheKey(string env, string endpointName, string path, string queryString, IHeaderDictionary headers)
+    {
+        var keyBuilder = new StringBuilder();
+        keyBuilder.Append($"{env}:{endpointName}:{path}:{queryString}");
+        
+        // Include authorization to differentiate between users if needed
+        if (headers.TryGetValue("Authorization", out var authValues))
+        {
+            // Hash the token to avoid storing sensitive data in memory
+            using var sha = SHA256.Create();
+            var authBytes = Encoding.UTF8.GetBytes(authValues.ToString());
+            var hashBytes = sha.ComputeHash(authBytes);
+            var authHash = Convert.ToBase64String(hashBytes);
+            
+            keyBuilder.Append($":auth:{authHash}");
+        }
+        
+        // Include other headers that might affect the response
+        if (headers.TryGetValue("Accept-Language", out var langValues))
+        {
+            keyBuilder.Append($":lang:{langValues}");
+        }
+        
+        return keyBuilder.ToString();
+    }
+
+    /// <summary>
+    /// Executes the actual proxy request and writes the response
+    /// </summary>
+    private async Task<(bool IsSuccessful, string Content, Dictionary<string, string> Headers, int StatusCode)> ExecuteProxyRequest(
+        string method, string fullUrl, string env, 
+        (string Url, HashSet<string> Methods, bool IsPrivate, string Type) endpointConfig,
+        string endpointName)
+    {
+        // Create HttpClient
+        var client = _httpClientFactory.CreateClient("ProxyClient");
+
+        // Create request message
+        var requestMessage = new HttpRequestMessage(
+            new HttpMethod(method), 
+            fullUrl
+        );
+
+        // Copy request body for methods that can have body content
+        if (HttpMethods.IsPost(method) ||
+            HttpMethods.IsPut(method) ||
+            HttpMethods.IsPatch(method) ||
+            HttpMethods.IsDelete(method))
+        {
+            // Enable buffering to allow multiple reads
+            Request.EnableBuffering();
+            
+            // Read the request body
+            var memoryStream = new MemoryStream();
+            await Request.Body.CopyToAsync(memoryStream);
+            
+            // Reset position for potential downstream middleware
+            memoryStream.Position = 0;
+            Request.Body.Position = 0;
+            
+            // Set the request content
+            requestMessage.Content = new StreamContent(memoryStream);
+            
+            // Copy content type header if present
+            if (Request.ContentType != null)
+            {
+                requestMessage.Content.Headers.ContentType = 
+                    new System.Net.Http.Headers.MediaTypeHeaderValue(Request.ContentType);
+            }
+        }
+
+        // Copy headers
+        foreach (var header in Request.Headers)
+        {
+            // Skip certain headers that shouldn't be proxied
+            if (header.Key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
+                header.Key.Equals("Connection", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
+            {
+                if (header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
+                    continue; // Already handled for request content
+
+                requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Could not add header {HeaderKey}", header.Key);
+            }
+        }
+
+        // Add custom headers
+        requestMessage.Headers.Add("DatabaseName", env);
+        requestMessage.Headers.Add("ServerName", Environment.MachineName);
+
+        // Send the request
+        var response = await client.SendAsync(requestMessage);
+        
+        // Store response headers for cache and apply to current response
+        var responseHeaders = new Dictionary<string, string>();
+
+        // Copy response headers
+        foreach (var header in response.Headers)
+        {
+            if (!header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+            {
+                Response.Headers[header.Key] = header.Value.ToArray();
+                responseHeaders[header.Key] = string.Join(",", header.Value);
+            }
+        }
+
+        // Copy content headers, but exclude Content-Length
+        if (response.Content != null)
+        {
+            foreach (var header in response.Content.Headers)
+            {
+                if (!header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+                {
+                    Response.Headers[header.Key] = header.Value.ToArray();
+                    responseHeaders[header.Key] = string.Join(",", header.Value);
+                }
+            }
+        }
+        
+        // For GET requests, ensure Cache-Control header is set
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase) && !responseHeaders.ContainsKey("Cache-Control"))
+        {
+            // Add a default cache control header
+            Response.Headers["Cache-Control"] = "public, max-age=300"; // 5 minutes
+            responseHeaders["Cache-Control"] = "public, max-age=300";
+        }
+
+        // Set status code
+        Response.StatusCode = (int)response.StatusCode;
+
+        // Read and potentially rewrite response content
+        var originalContent = response.Content != null
+            ? await response.Content.ReadAsStringAsync()
+            : string.Empty;
+
+        // URL rewriting with your existing code
+        if (!Uri.TryCreate(endpointConfig.Url, UriKind.Absolute, out var originalUri))
+        {
+            Log.Warning("❌ Could not parse endpoint URL as URI: {Url}", endpointConfig.Url);
+            Response.StatusCode = 500;
+            await Response.WriteAsync("Error processing request");
+            return (false, string.Empty, responseHeaders, 500);
+        }
+
+        var originalHost = $"{originalUri.Scheme}://{originalUri.Host}:{originalUri.Port}";
+        var originalPath = originalUri.AbsolutePath.TrimEnd('/');
+
+        // Proxy path = /api/{env}/{endpoint}
+        var proxyHost = $"{Request.Scheme}://{Request.Host}";
+        var proxyPath = $"/api/{env}/{endpointName}";
+
+        // Apply URL rewriting
+        var rewrittenContent = UrlRewriter.RewriteUrl(
+            originalContent, 
+            originalHost, 
+            originalPath, 
+            proxyHost, 
+            proxyPath);
+
+        // Write the content to the response
+        await Response.WriteAsync(rewrittenContent);
+
+        Log.Debug("✅ Proxy request completed: {Method} {Path} -> {StatusCode}", 
+            method, Request.Path, response.StatusCode);
+            
+        return (
+            response.IsSuccessStatusCode, 
+            rewrittenContent, 
+            responseHeaders, 
+            (int)response.StatusCode
+        );
     }
 
     /// <summary>

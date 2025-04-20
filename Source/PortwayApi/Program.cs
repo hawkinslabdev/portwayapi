@@ -17,6 +17,7 @@ using PortwayApi.Middleware;
 using PortwayApi.Services;
 using System.Text;
 using System.Text.Json;
+using System.Net;
 
 // Create log directory
 Directory.CreateDirectory("log");

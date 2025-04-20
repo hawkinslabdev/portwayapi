@@ -160,15 +160,36 @@ try
     });
 
     // Configure HTTP client
-    builder.Services.AddHttpClient("ProxyClient")
-        .ConfigurePrimaryHttpMessageHandler(() =>
-        {
-            return new HttpClientHandler
+    var proxyUsername = Environment.GetEnvironmentVariable("PROXY_USERNAME");
+    var proxyPassword = Environment.GetEnvironmentVariable("PROXY_PASSWORD");
+    var proxyDomain = Environment.GetEnvironmentVariable("PROXY_DOMAIN");
+
+    if (!string.IsNullOrEmpty(proxyUsername) && !string.IsNullOrEmpty(proxyPassword))
+    {
+        builder.Services.AddHttpClient("ProxyClient")
+            .ConfigurePrimaryHttpMessageHandler(() =>
             {
-                UseDefaultCredentials = true, // Uses Windows credentials of the application
-                PreAuthenticate = true
-            };
-        });
+                return new HttpClientHandler
+                {
+                    UseDefaultCredentials = false,
+                    Credentials = new NetworkCredential(proxyUsername, proxyPassword, proxyDomain),
+                    PreAuthenticate = true
+                };
+            });
+    }
+    else
+    {
+        // Fallback to default credentials if not specified
+        builder.Services.AddHttpClient("ProxyClient")
+            .ConfigurePrimaryHttpMessageHandler(() =>
+            {
+                return new HttpClientHandler
+                {
+                    UseDefaultCredentials = true,
+                    PreAuthenticate = true
+                };
+            });
+    }
 
     // Register environment settings providers
     builder.Services.AddSingleton<IEnvironmentSettingsProvider, EnvironmentSettingsProvider>();

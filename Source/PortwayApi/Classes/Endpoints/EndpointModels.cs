@@ -27,6 +27,7 @@ public class EndpointEntity
     public List<string>? AllowedColumns { get; set; }
     public string? Procedure { get; set; }
     public List<string>? AllowedMethods { get; set; }
+    public string? PrimaryKey { get; set; }
     
     // Proxy endpoint properties
     public string? Url { get; set; }

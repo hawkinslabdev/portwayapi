@@ -76,6 +76,7 @@ Add a settings file for each environment:
 {
   "DatabaseObjectName": "Items",
   "DatabaseSchema": "dbo",
+  "PrimaryKey": "ItemCode",
   "AllowedColumns": [
     "ItemCode","Description","Assortment","sysguid"
   ]

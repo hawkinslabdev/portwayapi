@@ -316,11 +316,30 @@ try
     }
 
     // Enable request/response logging
-    app.Use(async (context, next) => {
-        Log.Information("📥 Incoming request: {Method} {Path}", context.Request.Method, context.Request.Path);
-        await next();
-        Log.Information("📤 Outgoing response: {StatusCode} for {Path}", context.Response.StatusCode, context.Request.Path);
-    });
+    if (builder.Environment.IsDevelopment())
+    {
+        // Enable request/response logging
+        app.Use(async (context, next) => 
+        {
+            Log.Information("📥 Incoming request: {Method} {Path}{QueryString}", 
+                context.Request.Method, 
+                context.Request.Path,
+                context.Request.QueryString);
+                
+            // Capture the start time
+            var startTime = DateTime.UtcNow;
+            
+            await next();
+            
+            // Calculate request duration
+            var duration = DateTime.UtcNow - startTime;
+            
+            Log.Information("📤 Outgoing response: {StatusCode} for {Path} - Took {Duration}ms", 
+                context.Response.StatusCode, 
+                context.Request.Path,
+                Math.Round(duration.TotalMilliseconds));
+        });
+    }
 
     // Get environment settings services
     var environmentSettings = app.Services.GetRequiredService<EnvironmentSettings>();

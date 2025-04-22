@@ -1,8 +1,8 @@
 {
     "DatabaseObjectName": "Items",
     "DatabaseSchema": "dbo",
+    "PrimaryKey": "ItemCode",
     "AllowedColumns": [
         "ItemCode","Description","Assortment","sysguid"
     ]
-  }
-  
+}

@@ -68,7 +68,7 @@ public class EndpointController : ControllerBase
         try
         {
             // Process the catchall to determine what type of endpoint we're dealing with
-            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
+            var (endpointType, endpointName, id, remainingPath) = ParseEndpoint(catchall);
             
             Log.Debug("🔄 Processing {Type} endpoint: {Name}", endpointType, endpointName);
 
@@ -82,9 +82,9 @@ public class EndpointController : ControllerBase
             switch (endpointType)
             {
                 case EndpointType.SQL:
-                    return await HandleSqlGetRequest(env, endpointName, select, filter, orderby, top, skip);
+                    return await HandleSqlGetRequest(env, endpointName, id, select, filter, orderby, top, skip);
                 case EndpointType.Proxy:
-                    return await HandleProxyRequest(env, endpointName, remainingPath, "GET");
+                    return await HandleProxyRequest(env, endpointName, id, remainingPath, "GET");
                 case EndpointType.Composite:
                     Log.Warning("❌ Composite endpoints don't support GET requests");
                     return StatusCode(405, new { error = "Method not allowed for composite endpoints" });
@@ -122,7 +122,7 @@ public class EndpointController : ControllerBase
         try
         {
             // Process the catchall to determine what type of endpoint we're dealing with
-            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
+            var (endpointType, endpointName, id, remainingPath) = ParseEndpoint(catchall);
             
             Log.Debug("🔄 Processing {Type} endpoint: {Name} for POST", endpointType, endpointName);
 
@@ -150,7 +150,7 @@ public class EndpointController : ControllerBase
                     return await HandleSqlPostRequest(env, endpointName, data);
                     
                 case EndpointType.Proxy:
-                    return await HandleProxyRequest(env, endpointName, remainingPath, "POST");
+                    return await HandleProxyRequest(env, endpointName, null, remainingPath, "POST");
                     
                 case EndpointType.Composite:
                     // Strip off the "composite/" prefix from the endpoint name if needed
@@ -192,7 +192,7 @@ public class EndpointController : ControllerBase
         try
         {
             // Process the catchall to determine what type of endpoint we're dealing with
-            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
+            var (endpointType, endpointName, id, remainingPath) = ParseEndpoint(catchall);
             
             Log.Debug("🔄 Processing {Type} endpoint: {Name} for PUT", endpointType, endpointName);
 
@@ -217,7 +217,7 @@ public class EndpointController : ControllerBase
             }
             else if (endpointType == EndpointType.Proxy)
             {
-                return await HandleProxyRequest(env, endpointName, remainingPath, "PUT");
+                return await HandleProxyRequest(env, endpointName, null, remainingPath, "PUT");
             }
             else
             {
@@ -253,7 +253,7 @@ public class EndpointController : ControllerBase
         try
         {
             // Process the catchall to determine what type of endpoint we're dealing with
-            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
+            var (endpointType, endpointName, parsedId, remainingPath) = ParseEndpoint(catchall);
             
             Log.Debug("🔄 Processing {Type} endpoint: {Name} for DELETE", endpointType, endpointName);
 
@@ -268,7 +268,7 @@ public class EndpointController : ControllerBase
             {
                 case EndpointType.SQL:
                     // Ensure ID is provided for SQL DELETE
-                    if (string.IsNullOrEmpty(id))
+                    if (string.IsNullOrEmpty(parsedId))
                     {
                         return BadRequest(new { 
                             error = "ID parameter is required for delete operations", 
@@ -276,10 +276,10 @@ public class EndpointController : ControllerBase
                         });
                     }
                     
-                    return await HandleSqlDeleteRequest(env, endpointName, id);
+                    return await HandleSqlDeleteRequest(env, endpointName, parsedId);
                     
                 case EndpointType.Proxy:
-                    return await HandleProxyRequest(env, endpointName, remainingPath, "DELETE");
+                    return await HandleProxyRequest(env, endpointName, parsedId, remainingPath, "DELETE");
                     
                 case EndpointType.Composite:
                 case EndpointType.Webhook:
@@ -317,7 +317,7 @@ public class EndpointController : ControllerBase
         try
         {
             // Process the catchall to determine what type of endpoint we're dealing with
-            var (endpointType, endpointName, remainingPath) = ParseEndpoint(catchall);
+            var (endpointType, endpointName, _, remainingPath) = ParseEndpoint(catchall);
             
             Log.Debug("🔄 Processing {Type} endpoint: {Name} for PATCH", endpointType, endpointName);
 
@@ -331,7 +331,7 @@ public class EndpointController : ControllerBase
             // Currently only proxy endpoints support PATCH
             if (endpointType == EndpointType.Proxy)
             {
-                return await HandleProxyRequest(env, endpointName, remainingPath, "PATCH");
+                return await HandleProxyRequest(env, endpointName, null, remainingPath, "PATCH");
             }
             
             Log.Warning("❌ {Type} endpoints don't support PATCH requests", endpointType);
@@ -353,55 +353,89 @@ public class EndpointController : ControllerBase
     /// <summary>
     /// Parses the catchall segment to determine endpoint type and name
     /// </summary>
-    private (EndpointType Type, string Name, string RemainingPath) ParseEndpoint(string catchall)
+    private (EndpointType Type, string Name, string? Id, string RemainingPath) ParseEndpoint(string catchall)
     {
-        // Split catchall into segments
         var segments = catchall.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length == 0)
         {
-            return (EndpointType.Standard, string.Empty, string.Empty);
+            return (EndpointType.Standard, string.Empty, null, string.Empty);
         }
-        
+
         string endpointName = segments[0];
-        string remainingPath = string.Join('/', segments.Skip(1));
+        string? id = null;
+        string remainingPath = segments.Length > 1 ? string.Join('/', segments.Skip(1)) : string.Empty;
+
+        // Handle different ID formats for SQL and Proxy endpoints
+        // Pattern for GUID format: Endpoint(guid'xxxx-xxxx')
+        var guidPattern = @"^\w+\(guid'([\w\-]+)'\)$";
+        var guidMatch = Regex.Match(endpointName, guidPattern);
         
+        // Pattern for string format: Endpoint('xxxx')
+        var stringPattern = @"^\w+\('([^']+)'\)$";
+        var stringMatch = Regex.Match(endpointName, stringPattern);
+        
+        // Pattern for numeric format: Endpoint(123)
+        var numericPattern = @"^\w+\((\d+)\)$";
+        var numericMatch = Regex.Match(endpointName, numericPattern);
+        
+        if (guidMatch.Success)
+        {
+            // Extract the endpoint name and GUID ID
+            endpointName = Regex.Replace(endpointName, @"\(guid'[\w\-]+'\)$", "");
+            id = guidMatch.Groups[1].Value;
+            Log.Debug("Extracted GUID ID: {Id} from endpoint {Endpoint}", id, endpointName);
+        }
+        else if (stringMatch.Success)
+        {
+            // Extract the endpoint name and string ID
+            endpointName = Regex.Replace(endpointName, @"\('[^']+'\)$", "");
+            id = stringMatch.Groups[1].Value;
+            Log.Debug("Extracted string ID: {Id} from endpoint {Endpoint}", id, endpointName);
+        }
+        else if (numericMatch.Success)
+        {
+            // Extract the endpoint name and numeric ID
+            endpointName = Regex.Replace(endpointName, @"\(\d+\)$", "");
+            id = numericMatch.Groups[1].Value;
+            Log.Debug("Extracted numeric ID: {Id} from endpoint {Endpoint}", id, endpointName);
+        }
+
         // Special handling for composite endpoints
         if (endpointName.Equals("composite", StringComparison.OrdinalIgnoreCase))
         {
-            // For composite endpoints, the second segment is the actual name
             if (segments.Length > 1)
             {
                 endpointName = $"composite/{segments[1]}";
-                remainingPath = string.Join('/', segments.Skip(2));
+                id = segments.Length > 2 ? segments[2] : null;
+                remainingPath = segments.Length > 3 ? string.Join('/', segments.Skip(3)) : string.Empty;
             }
-            return (EndpointType.Composite, endpointName, remainingPath);
+            return (EndpointType.Composite, endpointName, id, remainingPath);
         }
-        
+
         // Special handling for webhook endpoints
         if (endpointName.Equals("webhook", StringComparison.OrdinalIgnoreCase))
         {
-            return (EndpointType.Webhook, remainingPath, string.Empty);
+            return (EndpointType.Webhook, remainingPath, null, string.Empty);
         }
-        
+
         // Check if this is a SQL endpoint
         var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
         if (sqlEndpoints.ContainsKey(endpointName))
         {
-            return (EndpointType.SQL, endpointName, remainingPath);
+            return (EndpointType.SQL, endpointName, id, remainingPath);
         }
-        
+
         // Check if this is a proxy endpoint
         var proxyEndpoints = EndpointHandler.GetEndpoints(
             Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Proxy")
         );
-        
+
         if (proxyEndpoints.ContainsKey(endpointName))
         {
-            return (EndpointType.Proxy, endpointName, remainingPath);
+            return (EndpointType.Proxy, endpointName, id, remainingPath);
         }
-        
-        // Default to standard endpoint type if not recognized
-        return (EndpointType.Standard, endpointName, remainingPath);
+
+        return (EndpointType.Standard, endpointName, id, remainingPath);
     }
 
     /// <summary>
@@ -413,6 +447,7 @@ public class EndpointController : ControllerBase
     private async Task<IActionResult> HandleProxyRequest(
         string env,
         string endpointName,
+        string? id,
         string remainingPath,
         string method)
     {
@@ -442,8 +477,20 @@ public class EndpointController : ControllerBase
 
             // Construct full URL
             var queryString = Request.QueryString.Value ?? "";
-            var encodedPath = Uri.EscapeDataString(remainingPath);
-            var fullUrl = $"{endpointConfig.Url}{(string.IsNullOrEmpty(remainingPath) ? "" : $"/{encodedPath}")}{queryString}";
+            var fullUrl = endpointConfig.Url;
+
+            // Rewrite URL for specific proxy pattern
+            if (!string.IsNullOrEmpty(id))
+            {
+                fullUrl += $"(guid'{id}')";
+            }
+            else if (!string.IsNullOrEmpty(remainingPath))
+            {
+                fullUrl += $"/{remainingPath}";
+            }
+
+            // Add query string
+            fullUrl += queryString;
 
             // Store the target URL in the context items for logging
             HttpContext.Items["TargetUrl"] = fullUrl;
@@ -460,7 +507,7 @@ public class EndpointController : ControllerBase
             {
                 // Create a cache key based on the request details
                 string cacheKey = CreateCacheKey(env, endpointName, remainingPath, queryString, Request.Headers);
-                
+                                
                 // Try to get from cache first (without lock)
                 if (_proxyCache.TryGetValue(cacheKey, out ProxyCacheEntry? cacheEntry) && cacheEntry != null)
                 {
@@ -964,7 +1011,8 @@ public class EndpointController : ControllerBase
     /// </summary>
     private async Task<IActionResult> HandleSqlGetRequest(
         string env, 
-        string endpointName, 
+        string endpointName,
+        string? id,
         string? select, 
         string? filter,
         string? orderby,
@@ -1001,11 +1049,36 @@ public class EndpointController : ControllerBase
             var objectName = endpoint.DatabaseObjectName;
             var allowedColumns = endpoint.AllowedColumns ?? new List<string>();
             var allowedMethods = endpoint.Methods ?? new List<string> { "GET" };
+            var primaryKey = endpoint.PrimaryKey ?? "Id";
 
-            // Step 4: Check if GET is allowed
+            // Check if GET is allowed
             if (!allowedMethods.Contains("GET"))
             {
                 return StatusCode(405);
+            }
+
+            // If ID is provided, create a filter by primary key
+            if (!string.IsNullOrEmpty(id))
+            {
+                // Create appropriate filter expression by primary key
+                // Check if the ID is a GUID
+                if (Guid.TryParse(id, out _))
+                {
+                    filter = $"{primaryKey} eq guid'{id}'";
+                }
+                else
+                {
+                    // Handle numeric or string IDs
+                    bool isNumeric = long.TryParse(id, out _);
+                    filter = isNumeric 
+                        ? $"{primaryKey} eq {id}" 
+                        : $"{primaryKey} eq '{id}'";
+                }
+
+                // Set top to 1 to return only one record when requesting by ID
+                top = 1;
+                
+                Log.Debug("Created filter for ID-based query: {Filter}", filter);
             }
 
             // Step 5: Validate column names
@@ -1069,7 +1142,23 @@ public class EndpointController : ControllerBase
                 resultList.RemoveAt(resultList.Count - 1);
             }
 
-            // Step 9: Prepare response
+            // For ID-based requests, return the single item directly
+            if (!string.IsNullOrEmpty(id))
+            {
+                // Return 404 if no results found
+                if (resultList.Count == 0)
+                {
+                    return NotFound(new {
+                        error = $"No record found with {primaryKey} = {id}",
+                        success = false
+                    });
+                }
+                
+                // Return the single item directly (without wrapping in a collection)
+                return Ok(resultList.FirstOrDefault());
+            }
+
+            // Step 9: Prepare response for collection requests
             var response = new
             {
                 Count = resultList.Count,
@@ -1372,7 +1461,7 @@ public class EndpointController : ControllerBase
                 return NotFound();
             }
 
-            // Step 1: Validate environment
+            // Validate environment
             var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
             {
@@ -1382,15 +1471,15 @@ public class EndpointController : ControllerBase
                 });
             }
 
-            // Step 2: Get endpoint configuration
+            // Get endpoint configuration
             var endpoint = sqlEndpoints[endpointName];
 
-            // Step 3: Check if the endpoint supports DELETE and has a procedure defined
+            // Check if the endpoint supports DELETE and has a procedure defined
             if (!(endpoint.Methods?.Contains("DELETE") ?? false))
             {
                 return StatusCode(405, new { 
                     error = "Method not allowed",
-                    success = false
+                    success = false 
                 });
             }
 
@@ -1402,7 +1491,7 @@ public class EndpointController : ControllerBase
                 });
             }
 
-            // Step 4: Check if the ID is provided
+            // Check if the ID is provided
             if (string.IsNullOrEmpty(id))
             {
                 return BadRequest(new { 
@@ -1411,12 +1500,21 @@ public class EndpointController : ControllerBase
                 });
             }
 
-            // Step 5: Prepare stored procedure parameters
+            // Prepare stored procedure parameters
             var dynamicParams = new DynamicParameters();
             
             // Add method parameter (always needed for the standard procedure pattern)
             dynamicParams.Add("@Method", "DELETE");
-            dynamicParams.Add("@id", id);
+            
+            // Handle different primary key parameter names
+            var primaryKey = endpoint.PrimaryKey ?? "Id";
+            dynamicParams.Add($"@{primaryKey}", id);
+            
+            // For backward compatibility, also add @id parameter
+            if (!primaryKey.Equals("id", StringComparison.OrdinalIgnoreCase))
+            {
+                dynamicParams.Add("@id", id);
+            }
             
             // Add user parameter if available
             if (User.Identity?.Name != null)
@@ -1424,7 +1522,7 @@ public class EndpointController : ControllerBase
                 dynamicParams.Add("@UserName", User.Identity.Name);
             }
 
-            // Step 6: Execute stored procedure
+            // Execute stored procedure
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync();
             
@@ -1464,7 +1562,6 @@ public class EndpointController : ControllerBase
             throw;
         }
     }
-
 
     /// <summary>
     /// Helper method to create a standard error response

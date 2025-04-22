@@ -19,6 +19,7 @@ public class EndpointDefinition
     public string? DatabaseSchema { get; set; }
     public List<string>? AllowedColumns { get; set; }
     public string? Procedure { get; set; }
+    public string? PrimaryKey { get; set; }  // Add this property
 
     // Helper properties to simplify type checking
     public bool IsStandard => Type == EndpointType.Standard && !IsPrivate;
@@ -429,6 +430,7 @@ public static class EndpointHandler
                     DatabaseSchema = schema,
                     AllowedColumns = entity.AllowedColumns ?? new List<string>(),
                     Procedure = entity.Procedure,
+                    PrimaryKey = entity.PrimaryKey,  // Add this line
                     Methods = allowedMethods
                 };
             }
@@ -552,7 +554,8 @@ public static class EndpointHandler
                 DatabaseObjectName = "Items",
                 DatabaseSchema = "dbo",
                 AllowedColumns = new List<string> { "ItemCode", "Description", "Price" },
-                AllowedMethods = new List<string> { "GET" }
+                AllowedMethods = new List<string> { "GET" },
+                PrimaryKey = "ItemCode" 
             };
 
             var json = JsonSerializer.Serialize(sample, new JsonSerializerOptions { WriteIndented = true });

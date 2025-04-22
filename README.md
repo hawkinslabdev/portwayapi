@@ -14,8 +14,8 @@ A quick example to give you an idea of what this is all about:
 - **Multiple Endpoint Types**
   
   We support various endpoint types. You can connect your internal webservices and expose specific endpoints; or you can expose your database directly for specific tables, schema's and/or fields.
-  - 🗄️ **SQL API**: Direct SQL Server data access with OData support. This now supports POST requests!
-  - 🔀 **Proxy**: Forward requests to internal services with authentication. This now supports chaining, to combine multiple operations in a single request. Call the "Line" endpoint before the "Header", all from one request!
+  - 🗄️ **Microsoft SQL Server**: Direct SQL Server data access with OData support. This now supports POST requests!
+  - 🔀 **Proxy service**: Forward requests to internal services with authentication. This now supports chaining, to combine multiple operations in a single request. Call the "Line" endpoint before the "Header", all from one request!
   - 📥 **Webhook**: Process incoming webhooks and store data, directly into your database.
 - 🔐 **Secure authentication**: Token-based auth with Azure Key Vault support.
 - 🌍 **Environment Awareness** Route to different environments (test, production, etc.).

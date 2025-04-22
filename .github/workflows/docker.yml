@@ -28,6 +28,8 @@ jobs:
           type=semver,pattern={{major}}.{{minor}}
           type=ref,event=branch
           type=sha,format=short
+          # Add 'latest' tag only when on main branch and not a pull request
+          type=raw,value=latest,enable={{is_default_branch}}
     
     - name: Login to GitHub Container Registry
       if: github.event_name != 'pull_request'

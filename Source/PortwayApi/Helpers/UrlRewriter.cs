@@ -19,10 +19,10 @@ public static class UrlRewriter
     /// <param name="newPath">The new path</param>
     /// <returns>Content with rewritten URLs</returns>
     public static string RewriteUrl(
-        string content, 
-        string originalBaseUrl, 
-        string originalPath, 
-        string newBaseUrl, 
+        string content,
+        string originalBaseUrl,
+        string originalPath,
+        string newBaseUrl,
         string newPath)
     {
         if (string.IsNullOrEmpty(content) || string.IsNullOrEmpty(originalBaseUrl))
@@ -38,58 +38,74 @@ public static class UrlRewriter
             newPath = newPath.TrimEnd('/');
 
             // Build the full URLs
-            var fullOriginalUrl = string.IsNullOrEmpty(originalPath) 
+            var fullOriginalUrl = string.IsNullOrEmpty(originalPath)
                 ? originalBaseUrl
                 : $"{originalBaseUrl}/{originalPath}";
-                
+
             var fullNewUrl = $"{newBaseUrl}{newPath}";
 
-            // Create regex patterns to handle various URL formats in JSON
-            // This handles both quoted and unquoted URLs
-            
             // 1. Replace full URLs (with scheme, host, port, path)
             var fullUrlPattern = @"(\"")?(" + Regex.Escape(fullOriginalUrl) + @"(\/[^\""\s]*)?)(\""|[\s,}])";
-            content = Regex.Replace(content, fullUrlPattern, m => {
+            content = Regex.Replace(content, fullUrlPattern, m =>
+            {
                 var hasQuotes = m.Groups[1].Success;
                 var path = m.Groups[3].Value;
                 var end = m.Groups[4].Value;
-                
+
                 return (hasQuotes ? "\"" : "") + fullNewUrl + path + end;
             });
-            
+
             // 2. Replace base URL only (when paths might be dynamic)
             var baseUrlPattern = @"(\"")?(" + Regex.Escape(originalBaseUrl) + @")(\/[^\""\s]*)(\""|[\s,}])";
-            content = Regex.Replace(content, baseUrlPattern, m => {
+            content = Regex.Replace(content, baseUrlPattern, m =>
+            {
                 var hasQuotes = m.Groups[1].Success;
                 var path = m.Groups[3].Value;
                 var end = m.Groups[4].Value;
-                
+
                 return (hasQuotes ? "\"" : "") + newBaseUrl + newPath + path + end;
             });
 
-            // Handle relative URLs if needed
-            try {
-                // Extract original domain path for relative URL handling
+            // 3. Replace domain references (for relative URL handling)
+            try
+            {
                 var uri = new Uri(originalBaseUrl);
                 var originalDomain = uri.Host;
-                
-                // 3. Replace domain references that might be in the content
-                if (!string.IsNullOrEmpty(originalDomain)) {
+
+                if (!string.IsNullOrEmpty(originalDomain))
+                {
                     var domainPattern = @"([""\'])(" + Regex.Escape(originalDomain) + @")([""\'])";
-                    
-                    // Extract new domain from new base URL
                     var newUri = new Uri(newBaseUrl);
                     var newDomain = newUri.Host;
-                    
-                    content = Regex.Replace(content, domainPattern, m => {
+
+                    content = Regex.Replace(content, domainPattern, m =>
+                    {
                         var startQuote = m.Groups[1].Value;
                         var endQuote = m.Groups[3].Value;
                         return startQuote + newDomain + endQuote;
                     });
                 }
-            } catch (UriFormatException) {
+            }
+            catch (UriFormatException)
+            {
                 // Skip domain replacement if URLs cannot be parsed
             }
+
+            // 4. Rewrite all Exact.Entity.REST.svc URLs regardless of domain/path
+            var svcEntityPattern = @"(\"")?(?:https?:\/\/[^\""\s]*?)?\/?[^\""\s]*?Exact\.Entity\.REST\.svc\/([^\""\s]+)\(guid'[^\""\s]+?'\)(\""|[\s,}])";
+            content = Regex.Replace(content, svcEntityPattern, m =>
+            {
+                var hasQuotes = m.Groups[1].Success;
+                var entityName = m.Groups[2].Value; // e.g., Request
+                var entityFull = m.Value
+                    .Split("Exact.Entity.REST.svc/")[1]  // Get the entity part after "Exact.Entity.REST.svc/"
+                    .TrimEnd(m.Groups[3].Value.ToCharArray()); // Clean up trailing quote or brace
+                var end = m.Groups[3].Value;
+
+                // Use the new base URL, path, and the correct entity part (e.g., Request(guid'...'))
+                var rewritten = $"{newBaseUrl.TrimEnd('/')}{newPath.TrimEnd('/')}/{entityFull}";
+                return (hasQuotes ? "\"" : "") + rewritten + end;
+            });
 
             return content;
         }

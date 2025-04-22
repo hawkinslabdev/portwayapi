@@ -241,18 +241,19 @@ public class TokenService
                 AllowedScopes = scopes,
                 ExpiresAt = expiresAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never",
                 CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
-                Remarks = new
-                {
-                    ScopeInformation = new {
-                        Format = "Comma-separated list of endpoint names, or * for all endpoints",
-                        Examples = new[]
-                        {
-                            "* (access to all endpoints)",
-                            "Products,Customers (access to only these endpoints)",
-                            "Product* (access to all endpoints starting with Product)"
-                        }
-                    }
-                }
+                Usage = "Use this token in the Authorization header as: Bearer <token>",
+                //Remarks = new
+                //{
+                //    ScopeInformation = new {
+                //        Format = "Comma-separated list of endpoint names, or * for all endpoints",
+                //        Examples = new[]
+                //        {
+                //            "* (access to all endpoints)",
+                //            "Products,Customers (access to only these endpoints)",
+                //            "Product* (access to all endpoints starting with Product)"
+                //        }
+                //    }
+                //}
             };
             
             var options = new JsonSerializerOptions { WriteIndented = true };

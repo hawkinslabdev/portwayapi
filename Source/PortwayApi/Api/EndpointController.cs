@@ -13,6 +13,7 @@ using System.Security.Cryptography;
 using PortwayApi.Classes;
 using PortwayApi.Helpers;
 using PortwayApi.Interfaces;
+using PortwayApi.Services;
 using Serilog;
 
 namespace PortwayApi.Api;
@@ -30,6 +31,7 @@ public class EndpointController : ControllerBase
     private readonly IODataToSqlConverter _oDataToSqlConverter;
     private readonly IEnvironmentSettingsProvider _environmentSettingsProvider;
     private readonly CompositeEndpointHandler _compositeHandler;
+    private readonly SqlConnectionPoolService _connectionPoolService; 
 
     public EndpointController(
         IHttpClientFactory httpClientFactory,
@@ -37,7 +39,8 @@ public class EndpointController : ControllerBase
         EnvironmentSettings environmentSettings,
         IODataToSqlConverter oDataToSqlConverter,
         IEnvironmentSettingsProvider environmentSettingsProvider,
-        CompositeEndpointHandler compositeHandler)
+        CompositeEndpointHandler compositeHandler,
+        SqlConnectionPoolService connectionPoolService)
     {
         _httpClientFactory = httpClientFactory;
         _urlValidator = urlValidator;
@@ -45,6 +48,7 @@ public class EndpointController : ControllerBase
         _oDataToSqlConverter = oDataToSqlConverter;
         _environmentSettingsProvider = environmentSettingsProvider;
         _compositeHandler = compositeHandler;
+        _connectionPoolService = connectionPoolService;
     }
 
     /// <summary>
@@ -926,7 +930,7 @@ public class EndpointController : ControllerBase
             }
 
             // Insert webhook data
-            using var connection = new SqlConnection(connectionString);
+            using var connection = new SqlConnection(_connectionPoolService.OptimizeConnectionString(connectionString));
             await connection.OpenAsync();
 
             var insertQuery = $@"
@@ -1128,7 +1132,7 @@ public class EndpointController : ControllerBase
             var (query, parameters) = _oDataToSqlConverter.ConvertToSQL($"{schema}.{objectName}", odataParams);
 
             // Step 8: Execute query
-            await using var connection = new SqlConnection(connectionString);
+            await using var connection = new SqlConnection(_connectionPoolService.OptimizeConnectionString(connectionString));
             await connection.OpenAsync();
 
             var results = await connection.QueryAsync(query, parameters);
@@ -1244,7 +1248,7 @@ public class EndpointController : ControllerBase
             }
 
             // Execute stored procedure
-            await using var connection = new SqlConnection(connectionString);
+            await using var connection = new SqlConnection(_connectionPoolService.OptimizeConnectionString(connectionString));
             await connection.OpenAsync();
             
             // Parse procedure name
@@ -1405,7 +1409,7 @@ public class EndpointController : ControllerBase
             }
 
             // Step 7: Execute stored procedure
-            await using var connection = new SqlConnection(connectionString);
+            await using var connection = new SqlConnection(_connectionPoolService.OptimizeConnectionString(connectionString));
             await connection.OpenAsync();
             
             // Parse procedure name properly
@@ -1523,7 +1527,7 @@ public class EndpointController : ControllerBase
             }
 
             // Execute stored procedure
-            await using var connection = new SqlConnection(connectionString);
+            await using var connection = new SqlConnection(_connectionPoolService.OptimizeConnectionString(connectionString));
             await connection.OpenAsync();
             
             // Parse procedure name properly

@@ -57,6 +57,9 @@ try
     builder.Configuration.AddJsonFile("appsettings.json", optional: false)
                      .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true);
 
+    var useHttpsEnv = Environment.GetEnvironmentVariable("USE_HTTPS");
+    var useHttps = !string.Equals(useHttpsEnv, "false", StringComparison.OrdinalIgnoreCase);
+
     // Configure Kestrel 
     builder.WebHost.ConfigureKestrel(serverOptions =>
     {
@@ -89,7 +92,7 @@ try
         serverOptions.Limits.Http2.KeepAlivePingTimeout = TimeSpan.FromSeconds(60);
 
         // 7. Configure HTTPS by forcing SSL when it's not localhost
-        if (!builder.Environment.IsDevelopment())
+        if (!builder.Environment.IsDevelopment() && useHttps)
         {
             serverOptions.ConfigureEndpointDefaults(listenOptions =>
             {
@@ -128,16 +131,19 @@ try
     builder.Services.AddHttpContextAccessor();
 
     // Configure CORS
-    builder.Services.AddCors(options =>
+    if (!builder.Environment.IsDevelopment())
     {
-        options.AddPolicy("AllowAllOrigins",
-            builder =>
-            {
-                builder.AllowAnyOrigin()
-                       .AllowAnyMethod()
-                       .AllowAnyHeader();
-            });
-    });
+        builder.Services.AddCors(options =>
+        {
+            options.AddPolicy("AllowAllOrigins",
+                builder =>
+                {
+                    builder.AllowAnyOrigin()
+                        .AllowAnyMethod()
+                        .AllowAnyHeader();
+                });
+        });
+    };
 
     // Define server name
     string serverName = Environment.MachineName;
@@ -201,6 +207,7 @@ try
     builder.Services.AddSingleton<IEdmModelBuilder, EdmModelBuilder>();
     builder.Services.AddSingleton<Compiler, SqlServerCompiler>();
     builder.Services.AddSingleton<IODataToSqlConverter, ODataToSqlConverter>();
+    builder.Services.AddSqlConnectionPooling(builder.Configuration);
 
     // Initialize endpoints directories
     EnsureDirectoryStructure();
@@ -272,14 +279,7 @@ try
     app.UseResponseCompression();
     app.UseExceptionHandlingMiddleware();
     app.UseSecurityHeaders();
-    app.UseRequestTrafficLogging();
     
-    app.UseDefaultFiles(new DefaultFilesOptions
-    {
-        DefaultFileNames = new List<string> { "index.html" }
-    });
-    app.UseStaticFiles();
-
     // Configure Swagger UI using our centralized configuration
     SwaggerConfiguration.ConfigureSwaggerUI(app, swaggerSettings);
 
@@ -382,9 +382,6 @@ try
     // Use Rate Limiting middleware
     PortwayApi.Middleware.RateLimiterExtensions.UseRateLimiter(app);
 
-    // Use Token Authentication middleware
-    app.UseTokenAuthentication();
-
     // Use CORS middleware
     app.UseCors(builder =>
     {
@@ -392,12 +389,19 @@ try
                .AllowAnyMethod()
                .AllowAnyHeader();
     });
+    app.UseRequestTrafficLogging();
 
-    // Use caching middleware
+    // Use Static Files middleware
+    app.UseDefaultFiles(new DefaultFilesOptions
+    {
+        DefaultFileNames = new List<string> { "index.html" }
+    });
+    app.UseStaticFiles();
+
+    // Use other middleware
+    app.UseTokenAuthentication();
     app.UseResponseCaching();
     app.UseAuthenticatedCaching();
-
-    // Use authorization middleware
     app.UseAuthorization();
 
     var forwardedHeadersOptions = new ForwardedHeadersOptions

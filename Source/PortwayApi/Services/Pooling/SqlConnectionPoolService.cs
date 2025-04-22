@@ -22,6 +22,7 @@ public class SqlConnectionPoolService : IHostedService
     private readonly int _connectionTimeout;
     private readonly int _commandTimeout;
     private readonly bool _enablePooling;
+    private readonly string _applicationName;
     private readonly ConcurrentDictionary<string, string> _connectionStringCache = new();
     private readonly ConcurrentDictionary<string, SqlConnection> _warmupConnections = new();
     private Timer? _maintenanceTimer;
@@ -35,24 +36,28 @@ public class SqlConnectionPoolService : IHostedService
     /// <param name="connectionTimeout">Timeout in seconds for establishing connections</param>
     /// <param name="commandTimeout">Default command timeout in seconds</param>
     /// <param name="enablePooling">Whether connection pooling is enabled</param>
+    /// <param name="applicationName">The application name to use for SQL connections</param>
     public SqlConnectionPoolService(
         int minPoolSize = 5,
         int maxPoolSize = 100,
         int connectionTimeout = 15,
         int commandTimeout = 30,
-        bool enablePooling = true)
+        bool enablePooling = true,
+        string applicationName = "PortwayAPI"
+    )
     {
         _minPoolSize = minPoolSize;
         _maxPoolSize = maxPoolSize;
         _connectionTimeout = connectionTimeout;
         _commandTimeout = commandTimeout;
         _enablePooling = enablePooling;
+        _applicationName = applicationName;
         
         // Configure default connection pooling parameters
         SqlConnection.ClearAllPools();
         
-        Log.Information("🔌 SQL Connection Pool Service initialized with Min: {MinPoolSize}, Max: {MaxPoolSize}, Timeout: {Timeout}s",
-            _minPoolSize, _maxPoolSize, _connectionTimeout);
+        Log.Information("🔌 SQL Connection Pool Service initialized with Min: {MinPoolSize}, Max: {MaxPoolSize}, Timeout: {Timeout}s, AppName: {AppName}",
+            _minPoolSize, _maxPoolSize, _connectionTimeout, _applicationName);
     }
     
     /// <summary>
@@ -74,7 +79,9 @@ public class SqlConnectionPoolService : IHostedService
         builder.MaxPoolSize = _maxPoolSize;
         builder.ConnectTimeout = _connectionTimeout;
         builder.Pooling = _enablePooling;
-        builder.ApplicationName = "PortwayAPI";
+        
+        // Set the application name to identify your connections
+        builder.ApplicationName = _applicationName;
         
         // Cache the optimized connection string
         var result = builder.ConnectionString;
@@ -248,6 +255,7 @@ public static class SqlConnectionPoolingExtensions
         int connectionTimeout = configuration.GetValue<int>("SqlConnectionPooling:ConnectionTimeout", 15);
         int commandTimeout = configuration.GetValue<int>("SqlConnectionPooling:CommandTimeout", 30);
         bool enablePooling = configuration.GetValue<bool>("SqlConnectionPooling:Enabled", true);
+        string applicationName = configuration.GetValue<string>("SqlConnectionPooling:ApplicationName", "PortwayAPI");
         
         // Register the service
         services.AddSingleton<SqlConnectionPoolService>(sp => new SqlConnectionPoolService(
@@ -255,7 +263,8 @@ public static class SqlConnectionPoolingExtensions
             maxPoolSize,
             connectionTimeout,
             commandTimeout,
-            enablePooling
+            enablePooling,
+            applicationName
         ));
         
         // Register as a hosted service for maintenance

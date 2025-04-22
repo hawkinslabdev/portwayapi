@@ -305,8 +305,8 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
     
     private void AddWebhookEndpoints(OpenApiDocument swaggerDoc, List<string> allowedEnvironments, ref int operationIdCounter)
     {
-        // Add webhook endpoint
-        string path = "/webhook/{env}/{webhookId}";
+        // Add webhook endpoint with correct path pattern
+        string path = "/api/{env}/webhook/{webhookId}";
         
         // Create path item if it doesn't exist
         if (!swaggerDoc.Paths.ContainsKey(path))
@@ -383,7 +383,7 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
         {
             Tags = new List<OpenApiTag> { new() { Name = endpointName } }, // Assign unique tag based on endpoint name
             Summary = $"{method} {endpointName}",
-            Description = $"{method} operation for {definition.DatabaseSchema}.{definition.DatabaseObjectName}",
+            Description = $"{method} operation for entity {definition.DatabaseObjectName}",
             OperationId = $"op_{operationId}",
             Parameters = new List<OpenApiParameter>
             {
@@ -505,7 +505,7 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
         {
             Tags = new List<OpenApiTag> { new() { Name = endpointName } }, // Assign unique tag based on endpoint name
             Summary = $"DELETE {endpointName}",
-            Description = $"Delete operation for {definition.DatabaseSchema}.{definition.DatabaseObjectName}",
+            Description = $"Delete operation for entity {definition.DatabaseObjectName}",
             OperationId = $"op_{operationId}",
             Parameters = new List<OpenApiParameter>
             {

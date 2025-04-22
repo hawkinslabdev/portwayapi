@@ -1,7 +1,9 @@
 name: Build and Push Docker Image
 on:
   release:
-    types: [released]
+    types: 
+      - published  # Triggers when a new release is published
+      - created    # Alternatively, you can use 'created' if you want more flexibility
 jobs:
   build:
     runs-on: ubuntu-latest

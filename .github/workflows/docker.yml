@@ -1,5 +1,6 @@
 name: Build and Push Docker Image
 on:
+  workflow_dispatch:
   release:
     types: 
       - published  # Triggers when a new release is published

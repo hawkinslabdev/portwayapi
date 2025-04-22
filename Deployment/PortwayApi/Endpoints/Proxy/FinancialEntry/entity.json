@@ -1,0 +1,30 @@
+{
+  "Type": "Composite",
+  "Url": "http://localhost:8020/services/Exact.Entity.REST.EG",
+  "Methods": ["POST"],
+  "CompositeConfig": {
+    "Name": "FinancialEntry",
+    "Description": "Creates a complete financial transaction (which requires a Header and one or more lines)",
+    "Steps": [
+      {
+        "Name": "CreateFinancialLine",
+        "Endpoint": "FinancialLine",
+        "Method": "POST",
+        "IsArray": true,
+        "ArrayProperty": "Lines",
+        "TemplateTransformations": {
+          "TransactionKey": "$guid"
+        }
+      },
+      {
+        "Name": "CreateFinancialHeader",
+        "Endpoint": "FinancialHeader",
+        "Method": "POST",
+        "SourceProperty": "Header",
+        "TemplateTransformations": {
+          "TransactionKey": "$prev.CreateOrderLines.0.d.TransactionKey"
+        }
+      }
+    ]
+  }
+}

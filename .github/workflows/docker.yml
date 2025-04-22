@@ -2,13 +2,7 @@ name: Build and Push Docker Image
 
 on:
   release:
-    types: 
-      - created
-      - published
-      - released
-  push:
-    tags:
-      - 'v*'
+    types: [published]
 
 jobs:
   build:

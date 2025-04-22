@@ -207,7 +207,7 @@ Content-Type: application/json
 
 ### Webhook Endpoints
 ```http
-POST /webhook/prod/webhook1
+POST /api/prod/webhook/webhook1
 Content-Type: application/json
 
 {

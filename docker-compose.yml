@@ -1,29 +1,26 @@
+
+name: portway-stack
 services:
   portwayapi:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: portwayapi
+    image: ghcr.io/hawkinslabdev/portwayapi:latest
     ports:
-      - "8080:8080"
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      - USE_HTTPS=false
+      - ASPNETCORE_ENVIRONMENT=Production
+      - PROXY_USERNAME=serviceaccount
+      - PROXY_PASSWORD=password
+      - PROXY_DOMAIN=YOURDOMAIN
+      # - KEYVAULT_URI=https://your-keyvault-name.vault.azure.net/
+      # - AZURE_CLIENT_ID=your-client-id
+      # - AZURE_TENANT_ID=your-tenant-id
+      # - AZURE_CLIENT_SECRET=your-client-secret
     volumes:
-      # Mount these directories for persistence and configuration
       - portwayapi-data:/app/auth.db
       - ./endpoints:/app/endpoints
       - ./environments:/app/environments
       - ./tokens:/app/tokens
       - ./log:/app/log
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - PROXY_USERNAME=serviceaccount
-      - PROXY_PASSWORD=password
-      - PROXY_DOMAIN=YOURDOMAIN
-      # Uncomment to enable Azure Key Vault integration
-      # - KEYVAULT_URI=https://your-keyvault-name.vault.azure.net/
-      # Uncomment and set these for Azure authentication if needed
-      # - AZURE_CLIENT_ID=your-client-id
-      # - AZURE_TENANT_ID=your-tenant-id
-      # - AZURE_CLIENT_SECRET=your-client-secret
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
@@ -31,6 +28,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
 volumes:
   portwayapi-data:
     name: portwayapi-data

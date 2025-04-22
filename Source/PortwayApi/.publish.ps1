@@ -44,6 +44,12 @@ $webConfigContent = @"
     </system.webServer>
   </location>
   <system.webServer>
+    <defaultDocument>
+      <files>
+        <clear />
+        <add value="index.html" />
+      </files>
+    </defaultDocument>
     <httpProtocol>
       <customHeaders>
         <remove name="X-Powered-By" />

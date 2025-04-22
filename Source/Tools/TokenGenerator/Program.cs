@@ -10,6 +10,28 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
+/*
+ * Enhanced TokenGenerator with Scope Management
+ * ============================================
+ * 
+ * This version extends the original TokenGenerator with:
+ * 
+ * 1. Command-line parameters for setting scopes and token expiration
+ * 2. Menu options to update token scopes and expiration
+ * 3. Improved token file format with better scope display and instructions
+ * 4. Support for wildcard scopes (e.g., "Products*" for all Products endpoints)
+ * 
+ * Usage examples:
+ * - Generate token with specific scopes:
+ *   TokenGenerator.exe admin -s "Products,Orders,Customers"
+ *   
+ * - Generate token with expiration:
+ *   TokenGenerator.exe admin --expires 90
+ *   
+ * - Generate token with description:
+ *   TokenGenerator.exe admin --description "API Access for Admin"
+ */
+
 namespace TokenGenerator
 {
     public class AuthToken
@@ -155,6 +177,9 @@ namespace TokenGenerator
         public string? DatabasePath { get; set; }
         public string? TokensFolder { get; set; }
         public string? Username { get; set; }
+        public string? Scopes { get; set; }
+        public string? Description { get; set; }
+        public int? ExpiresInDays { get; set; }
         public bool ShowHelp { get; set; }
     }
 
@@ -185,7 +210,11 @@ namespace TokenGenerator
             }
         }
         
-        public async Task<string> GenerateTokenAsync(string username, string description = "")
+        public async Task<string> GenerateTokenAsync(
+            string username, 
+            string allowedScopes = "*", 
+            string description = "",
+            int? expiresInDays = null)
         {
             // Check if a token for this username already exists
             string tokenFilePath = Path.Combine(_tokenFolderPath, $"{username}.txt");
@@ -221,6 +250,11 @@ namespace TokenGenerator
             
             // Hash the token
             string hashedToken = HashToken(token, salt);
+
+            // Calculate expiration if specified
+            DateTime? expiresAt = expiresInDays.HasValue 
+                ? DateTime.UtcNow.AddDays(expiresInDays.Value) 
+                : null;
             
             // Create a new token entry
             var tokenEntry = new AuthToken
@@ -229,7 +263,8 @@ namespace TokenGenerator
                 TokenHash = hashedToken,
                 TokenSalt = saltString,
                 CreatedAt = DateTime.UtcNow,
-                AllowedScopes = "*", // Default to full access
+                ExpiresAt = expiresAt,
+                AllowedScopes = allowedScopes,
                 Description = description
             };
             
@@ -238,7 +273,7 @@ namespace TokenGenerator
             await _dbContext.SaveChangesAsync();
             
             // Save token to file
-            await SaveTokenToFileAsync(username, token);
+            await SaveTokenToFileAsync(username, token, allowedScopes, expiresAt, description);
             
             return token;
         }
@@ -248,6 +283,16 @@ namespace TokenGenerator
             return await _dbContext.Tokens
                 .Where(t => t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > DateTime.UtcNow))
                 .ToListAsync();
+        }
+
+        public async Task<List<AuthToken>> GetAllTokensAsync()
+        {
+            return await _dbContext.Tokens.ToListAsync();
+        }
+
+        public async Task<AuthToken?> GetTokenByIdAsync(int id)
+        {
+            return await _dbContext.Tokens.FindAsync(id);
         }
 
         public async Task<bool> RevokeTokenAsync(int id)
@@ -272,6 +317,96 @@ namespace TokenGenerator
                 catch (Exception ex)
                 {
                     Log.Warning(ex, "Could not delete token file for {Username}", token.Username);
+                }
+            }
+            
+            return true;
+        }
+        
+        public async Task<bool> UpdateTokenScopesAsync(int id, string newScopes)
+        {
+            var token = await _dbContext.Tokens.FindAsync(id);
+            if (token == null)
+                return false;
+                
+            token.AllowedScopes = newScopes;
+            await _dbContext.SaveChangesAsync();
+            
+            // Update token file if it exists
+            string filePath = Path.Combine(_tokenFolderPath, $"{token.Username}.txt");
+            if (File.Exists(filePath))
+            {
+                try
+                {
+                    // Read the existing token file to preserve the token value
+                    string jsonContent = await File.ReadAllTextAsync(filePath);
+                    var tokenInfo = JsonSerializer.Deserialize<TokenFileInfo>(jsonContent);
+                    
+                    if (tokenInfo != null)
+                    {
+                        // Update the scopes
+                        tokenInfo.AllowedScopes = newScopes;
+                        
+                        // Save the updated file
+                        await SaveTokenToFileAsync(
+                            token.Username, 
+                            tokenInfo.Token, 
+                            newScopes, 
+                            token.ExpiresAt, 
+                            token.Description);
+                            
+                        Log.Information("Updated scopes in token file for {Username}", token.Username);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Could not update token file for {Username}", token.Username);
+                }
+            }
+            
+            return true;
+        }
+
+        public async Task<bool> UpdateTokenExpirationAsync(int id, int? daysValid)
+        {
+            var token = await _dbContext.Tokens.FindAsync(id);
+            if (token == null)
+                return false;
+                
+            // Calculate new expiration
+            DateTime? expiresAt = daysValid.HasValue 
+                ? DateTime.UtcNow.AddDays(daysValid.Value) 
+                : null;
+                
+            token.ExpiresAt = expiresAt;
+            await _dbContext.SaveChangesAsync();
+            
+            // Update token file if it exists
+            string filePath = Path.Combine(_tokenFolderPath, $"{token.Username}.txt");
+            if (File.Exists(filePath))
+            {
+                try
+                {
+                    // Read the existing token file to preserve the token value
+                    string jsonContent = await File.ReadAllTextAsync(filePath);
+                    var tokenInfo = JsonSerializer.Deserialize<TokenFileInfo>(jsonContent);
+                    
+                    if (tokenInfo != null)
+                    {
+                        // Update the expiration
+                        await SaveTokenToFileAsync(
+                            token.Username, 
+                            tokenInfo.Token, 
+                            token.AllowedScopes, 
+                            expiresAt, 
+                            token.Description);
+                            
+                        Log.Information("Updated expiration in token file for {Username}", token.Username);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Could not update token file for {Username}", token.Username);
                 }
             }
             
@@ -304,6 +439,19 @@ namespace TokenGenerator
             return false;
         }
         
+        // Helper class for token file serialization/deserialization
+        private class TokenFileInfo
+        {
+            public string Username { get; set; } = string.Empty;
+            public string Token { get; set; } = string.Empty;
+            public string AllowedScopes { get; set; } = "*";
+            public string ExpiresAt { get; set; } = "Never";
+            public string CreatedAt { get; set; } = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+            public string Description { get; set; } = string.Empty;
+            public object? Remarks { get; set; }
+            public string Usage { get; set; } = string.Empty;
+        }
+        
         private string HashToken(string token, byte[] salt)
         {
             using (var pbkdf2 = new Rfc2898DeriveBytes(token, salt, 10000, HashAlgorithmName.SHA256))
@@ -323,7 +471,12 @@ namespace TokenGenerator
             return salt;
         }
         
-        private async Task SaveTokenToFileAsync(string username, string token)
+        private async Task SaveTokenToFileAsync(
+            string username, 
+            string token, 
+            string allowedScopes = "*", 
+            DateTime? expiresAt = null,
+            string description = "")
         {
             try
             {
@@ -338,14 +491,30 @@ namespace TokenGenerator
                 
                 // Create a more informative token file with usage instructions
                 var currentWindowsUser = Environment.UserName;
-                var tokenInfo = new
+                var tokenInfo = new TokenFileInfo
                 {
                     Username = username,
                     Token = token,
-                    AllowedScopes = "*", // Default to full access
+                    AllowedScopes = allowedScopes,
+                    ExpiresAt = expiresAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never",
                     CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
-                    Description = $"Generated by {currentWindowsUser}",
-                    Usage = "Use this token in the Authorization header as: Bearer " + token
+                    Description = string.IsNullOrEmpty(description) 
+                        ? $"Generated by {currentWindowsUser}"
+                        : description,
+                    Usage = "Use this token in the Authorization header as: Bearer " + token,
+                    Remarks = new
+                    {
+                        ScopeInformation = new
+                        {
+                            Format = "Comma-separated list of endpoint names, or * for all endpoints",
+                            Examples = new[]
+                            {
+                                "* (access to all endpoints)",
+                                "Products,Customers (access to only these endpoints)",
+                                "Product* (access to all endpoints starting with Product)"
+                            }
+                        }
+                    }
                 };
                 
                 var options = new JsonSerializerOptions { WriteIndented = true };
@@ -417,7 +586,12 @@ namespace TokenGenerator
                 // If username was provided as a command-line argument, generate token for that user
                 if (!string.IsNullOrWhiteSpace(options.Username))
                 {
-                    await GenerateTokenForUserAsync(options.Username, serviceProvider);
+                    await GenerateTokenForUserAsync(
+                        options.Username, 
+                        options.Scopes ?? "*", 
+                        options.Description ?? "",
+                        options.ExpiresInDays,
+                        serviceProvider);
                     return;
                 }
 
@@ -438,6 +612,12 @@ namespace TokenGenerator
                             break;
                         case "3":
                             await RevokeTokenAsync(serviceProvider);
+                            break;
+                        case "4":
+                            await UpdateTokenScopesAsync(serviceProvider);
+                            break;
+                        case "5":
+                            await UpdateTokenExpirationAsync(serviceProvider);
                             break;
                         case "0":
                             exitRequested = true;
@@ -482,15 +662,19 @@ namespace TokenGenerator
             Console.WriteLine("  TokenGenerator.exe [options] [username]");
             Console.WriteLine();
             Console.WriteLine("Options:");
-            Console.WriteLine("  -h, --help                 Show this help message");
-            Console.WriteLine("  -d, --database <path>      Specify the path to the auth.db file");
-            Console.WriteLine("  -t, --tokens <path>        Specify the folder to store token files");
+            Console.WriteLine("  -h, --help                    Show this help message");
+            Console.WriteLine("  -d, --database <path>         Specify the path to the auth.db file");
+            Console.WriteLine("  -t, --tokens <path>           Specify the folder to store token files");
+            Console.WriteLine("  -s, --scopes <scopes>         Specify allowed scopes (comma-separated or * for all)");
+            Console.WriteLine("  --description <text>          Add a description for the token");
+            Console.WriteLine("  --expires <days>              Set token expiration in days");
             Console.WriteLine();
             Console.WriteLine("Examples:");
-            Console.WriteLine("  TokenGenerator.exe                           Run in interactive mode");
-            Console.WriteLine("  TokenGenerator.exe -d \"C:\\path\\to\\auth.db\"   Use specific database file");
-            Console.WriteLine("  TokenGenerator.exe admin                     Generate token for user 'admin'");
-            Console.WriteLine("  TokenGenerator.exe -d \"..\\auth.db\" admin      Generate token with custom DB path");
+            Console.WriteLine("  TokenGenerator.exe                               Run in interactive mode");
+            Console.WriteLine("  TokenGenerator.exe -d \"C:\\path\\to\\auth.db\"     Use specific database file");
+            Console.WriteLine("  TokenGenerator.exe admin                         Generate token for user 'admin'");
+            Console.WriteLine("  TokenGenerator.exe admin -s \"Products,Orders\"    Generate token with specific scopes");
+            Console.WriteLine("  TokenGenerator.exe -s \"*\" --expires 90 admin     Generate token that expires in 90 days");
         }
 
         static void DisplayErrorAndExit(string errorMessage)
@@ -534,6 +718,29 @@ namespace TokenGenerator
                         }
                         break;
                         
+                    case "-s":
+                    case "--scopes":
+                        if (i + 1 < args.Length)
+                        {
+                            options.Scopes = args[++i];
+                        }
+                        break;
+                        
+                    case "--description":
+                        if (i + 1 < args.Length)
+                        {
+                            options.Description = args[++i];
+                        }
+                        break;
+                        
+                    case "--expires":
+                        if (i + 1 < args.Length && int.TryParse(args[i + 1], out int days))
+                        {
+                            options.ExpiresInDays = days;
+                            i++;
+                        }
+                        break;
+                        
                     default:
                         // If not a known option and no username set yet, assume it's a username
                         if (!arg.StartsWith("-") && string.IsNullOrWhiteSpace(options.Username))
@@ -555,6 +762,8 @@ namespace TokenGenerator
             Console.WriteLine("1. List all existing tokens");
             Console.WriteLine("2. Generate new token");
             Console.WriteLine("3. Revoke token");
+            Console.WriteLine("4. Update token scopes");
+            Console.WriteLine("5. Update token expiration");
             Console.WriteLine("0. Exit");
             Console.WriteLine("-----------------------------------------------");
             Console.Write("Select an option: ");
@@ -574,8 +783,8 @@ namespace TokenGenerator
             }
 
             Console.WriteLine("\n=== Active Tokens ===");
-            Console.WriteLine($"{"ID",-5} {"Username",-20} {"Created",-20} {"Token File",-15}");
-            Console.WriteLine(new string('-', 60));
+            Console.WriteLine($"{"ID",-5} {"Username",-20} {"Created",-20} {"Expires",-20} {"Scopes",-25} {"Token File",-15}");
+            Console.WriteLine(new string('-', 90));
 
             string tokenFolderPath = tokenService.GetTokenFolderPath();
             
@@ -583,17 +792,45 @@ namespace TokenGenerator
             {                
                 string tokenFilePath = Path.Combine(tokenFolderPath, $"{token.Username}.txt");
                 string tokenFileStatus = File.Exists(tokenFilePath) ? "Available" : "Missing";
+                string expiration = token.ExpiresAt?.ToString("yyyy-MM-dd") ?? "Never";
+                
+                // Truncate scopes if too long
+                string scopes = token.AllowedScopes;
+                if (scopes.Length > 25)
+                {
+                    scopes = scopes.Substring(0, 22) + "...";
+                }
 
-                Console.WriteLine($"{token.Id,-5} {token.Username,-20} {token.CreatedAt.ToString("yyyy-MM-dd HH:mm"),-20} {tokenFileStatus,-15}");
+                Console.WriteLine($"{token.Id,-5} {token.Username,-20} {token.CreatedAt.ToString("yyyy-MM-dd HH:mm"),-20} {expiration,-20} {scopes,-25} {tokenFileStatus,-15}");
             }
         }
 
         static async Task AddNewTokenAsync(IServiceProvider serviceProvider)
         {
             Console.WriteLine("\n=== Generate New Token ===");
+            
+            // Get username
             Console.Write("Enter username (leave blank for machine name): ");
             string? input = Console.ReadLine();
             string username = string.IsNullOrWhiteSpace(input) ? Environment.MachineName : input;
+
+            // Get scopes
+            Console.Write("Enter allowed scopes (comma-separated, or * for all endpoints): ");
+            string scopesInput = Console.ReadLine() ?? "*";
+            string scopes = string.IsNullOrWhiteSpace(scopesInput) ? "*" : scopesInput;
+
+            // Get description
+            Console.Write("Enter description (optional): ");
+            string description = Console.ReadLine() ?? "";
+
+            // Get expiration
+            Console.Write("Enter expiration in days (leave blank for no expiration): ");
+            string expirationInput = Console.ReadLine() ?? "";
+            int? expirationDays = null;
+            if (!string.IsNullOrWhiteSpace(expirationInput) && int.TryParse(expirationInput, out int days))
+            {
+                expirationDays = days;
+            }
 
             using var scope = serviceProvider.CreateScope();
             var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
@@ -601,11 +838,24 @@ namespace TokenGenerator
             try
             {
                 Console.WriteLine($"Generating token for user: {username}");
-                var token = await tokenService.GenerateTokenAsync(username);
+                var token = await tokenService.GenerateTokenAsync(
+                    username, 
+                    scopes, 
+                    description, 
+                    expirationDays);
 
                 Console.WriteLine("\n--- Token Generated Successfully ---");
                 Console.WriteLine($"Username: {username}");
                 Console.WriteLine($"Token: {token}");
+                Console.WriteLine($"Allowed Scopes: {scopes}");
+                if (expirationDays.HasValue)
+                {
+                    Console.WriteLine($"Expires: In {expirationDays} days ({DateTime.Now.AddDays(expirationDays.Value):yyyy-MM-dd})");
+                }
+                else
+                {
+                    Console.WriteLine("Expires: Never");
+                }
                 
                 string tokenFolderPath = tokenService.GetTokenFolderPath();
                 
@@ -643,15 +893,176 @@ namespace TokenGenerator
             bool result = await tokenService.RevokeTokenAsync(tokenId);
             if (result)
             {
+                Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"Token with ID {tokenId} has been revoked successfully.");
+                Console.ResetColor();
             }
             else
             {
+                Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"Token with ID {tokenId} not found.");
+                Console.ResetColor();
             }
         }
 
-        static async Task GenerateTokenForUserAsync(string username, IServiceProvider serviceProvider)
+        static async Task UpdateTokenScopesAsync(IServiceProvider serviceProvider)
+        {
+            // Display current tokens first
+            await ListAllTokensAsync(serviceProvider);
+
+            Console.WriteLine("\n=== Update Token Scopes ===");
+            Console.Write("Enter token ID to update (or 0 to cancel): ");
+            
+            if (!int.TryParse(Console.ReadLine(), out int tokenId) || tokenId <= 0)
+            {
+                Console.WriteLine("Operation cancelled.");
+                return;
+            }
+
+            using var scope = serviceProvider.CreateScope();
+            var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
+            
+            // Get the token to update
+            var token = await tokenService.GetTokenByIdAsync(tokenId);
+            if (token == null)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Token with ID {tokenId} not found.");
+                Console.ResetColor();
+                return;
+            }
+            
+            // Display current scopes
+            Console.WriteLine($"Current scopes: {token.AllowedScopes}");
+            Console.WriteLine("\nScope format options:");
+            Console.WriteLine("  * - Full access to all endpoints");
+            Console.WriteLine("  Products,Orders,Invoices - Access to specific endpoints (comma separated)");
+            Console.WriteLine("  Product* - Access to all endpoints that start with 'Product'");
+            
+            // Get new scopes
+            Console.Write("\nEnter new scopes: ");
+            string newScopes = Console.ReadLine() ?? "*";
+            if (string.IsNullOrWhiteSpace(newScopes))
+            {
+                newScopes = "*";
+            }
+            
+            // Confirm update
+            Console.WriteLine($"\nUpdating token for {token.Username}");
+            Console.WriteLine($"Old scopes: {token.AllowedScopes}");
+            Console.WriteLine($"New scopes: {newScopes}");
+            Console.Write("\nConfirm update? (y/n): ");
+            
+            string? response = Console.ReadLine()?.Trim().ToLower();
+            if (response != "y" && response != "yes")
+            {
+                Console.WriteLine("Update cancelled.");
+                return;
+            }
+            
+            // Update token scopes
+            bool result = await tokenService.UpdateTokenScopesAsync(tokenId, newScopes);
+            if (result)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"Token scopes updated successfully for {token.Username}.");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Failed to update token scopes.");
+                Console.ResetColor();
+            }
+        }
+        
+        static async Task UpdateTokenExpirationAsync(IServiceProvider serviceProvider)
+        {
+            // Display current tokens first
+            await ListAllTokensAsync(serviceProvider);
+
+            Console.WriteLine("\n=== Update Token Expiration ===");
+            Console.Write("Enter token ID to update (or 0 to cancel): ");
+            
+            if (!int.TryParse(Console.ReadLine(), out int tokenId) || tokenId <= 0)
+            {
+                Console.WriteLine("Operation cancelled.");
+                return;
+            }
+
+            using var scope = serviceProvider.CreateScope();
+            var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
+            
+            // Get the token to update
+            var token = await tokenService.GetTokenByIdAsync(tokenId);
+            if (token == null)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Token with ID {tokenId} not found.");
+                Console.ResetColor();
+                return;
+            }
+            
+            // Display current expiration
+            string currentExpiration = token.ExpiresAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never";
+            Console.WriteLine($"Current expiration: {currentExpiration}");
+            
+            // Get new expiration
+            Console.WriteLine("\nExpiration options:");
+            Console.WriteLine("  0 - No expiration (token never expires)");
+            Console.WriteLine("  30 - Expires in 30 days");
+            Console.WriteLine("  90 - Expires in 90 days");
+            Console.WriteLine("  365 - Expires in 1 year");
+            
+            Console.Write("\nEnter days until expiration (or 0 for no expiration): ");
+            if (!int.TryParse(Console.ReadLine(), out int days))
+            {
+                Console.WriteLine("Invalid input. Operation cancelled.");
+                return;
+            }
+            
+            // Convert to nullable int (null for no expiration)
+            int? daysValid = days <= 0 ? null : days;
+            
+            // Calculate and display new expiration
+            string newExpiration = daysValid.HasValue 
+                ? DateTime.Now.AddDays(daysValid.Value).ToString("yyyy-MM-dd HH:mm:ss")
+                : "Never";
+                
+            Console.WriteLine($"\nUpdating token for {token.Username}");
+            Console.WriteLine($"Old expiration: {currentExpiration}");
+            Console.WriteLine($"New expiration: {newExpiration}");
+            Console.Write("\nConfirm update? (y/n): ");
+            
+            string? response = Console.ReadLine()?.Trim().ToLower();
+            if (response != "y" && response != "yes")
+            {
+                Console.WriteLine("Update cancelled.");
+                return;
+            }
+            
+            // Update token expiration
+            bool result = await tokenService.UpdateTokenExpirationAsync(tokenId, daysValid);
+            if (result)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"Token expiration updated successfully for {token.Username}.");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Failed to update token expiration.");
+                Console.ResetColor();
+            }
+        }
+
+        static async Task GenerateTokenForUserAsync(
+            string username, 
+            string scopes, 
+            string description,
+            int? expiresInDays,
+            IServiceProvider serviceProvider)
         {
             try
             {                
@@ -659,11 +1070,28 @@ namespace TokenGenerator
                 var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
                 var config = scope.ServiceProvider.GetRequiredService<AppConfig>();
 
-                var token = await tokenService.GenerateTokenAsync(username);
+                var token = await tokenService.GenerateTokenAsync(
+                    username, 
+                    scopes, 
+                    description,
+                    expiresInDays);
                 
                 Log.Information("✅ Token generation successful!");
                 Log.Information("Username: {Username}", username);
                 Log.Information("Token: {Token}", token);
+                Log.Information("Scopes: {Scopes}", scopes);
+                
+                if (expiresInDays.HasValue)
+                {
+                    Log.Information("Expires: In {Days} days ({Date})", 
+                        expiresInDays, 
+                        DateTime.Now.AddDays(expiresInDays.Value).ToString("yyyy-MM-dd"));
+                }
+                else
+                {
+                    Log.Information("Expires: Never");
+                }
+                
                 Log.Information("Token file: {FilePath}", Path.Combine(tokenService.GetTokenFolderPath(), $"{username}.txt"));
             }
             catch (OperationCanceledException)

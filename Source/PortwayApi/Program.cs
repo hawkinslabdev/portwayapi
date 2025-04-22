@@ -279,6 +279,13 @@ try
     app.UseResponseCompression();
     app.UseExceptionHandlingMiddleware();
     app.UseSecurityHeaders();
+
+    // Use Static Files middleware
+    app.UseDefaultFiles(new DefaultFilesOptions
+    {
+        DefaultFileNames = new List<string> { "index.html" }
+    });
+    app.UseStaticFiles();
     
     // Configure Swagger UI using our centralized configuration
     SwaggerConfiguration.ConfigureSwaggerUI(app, swaggerSettings);
@@ -390,13 +397,6 @@ try
                .AllowAnyHeader();
     });
     app.UseRequestTrafficLogging();
-
-    // Use Static Files middleware
-    app.UseDefaultFiles(new DefaultFilesOptions
-    {
-        DefaultFileNames = new List<string> { "index.html" }
-    });
-    app.UseStaticFiles();
 
     // Use other middleware
     app.UseTokenAuthentication();

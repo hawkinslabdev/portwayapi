@@ -187,7 +187,7 @@ Content-Type: application/json
 
 {
   "Header": {
-    "OrderDebtor": "prod93",
+    "OrderDebtor": "60093",
     "YourReference": "Connect async"
   },
   "Lines": [

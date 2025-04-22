@@ -10,68 +10,114 @@ public class SecurityHeadersMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly HashSet<string> _unsafeResponseHeaders;
-    private readonly Dictionary<string, string> _additionalSecurityHeaders;
+    private readonly Dictionary<string, string> _securityHeaders;
 
     public SecurityHeadersMiddleware(RequestDelegate next)
     {
         _next = next;
         
-        // Headers to remove
+        // Headers to remove (prevent information disclosure)
         _unsafeResponseHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "Server",
-            "X-AspNet-Version",
             "X-Powered-By",
+            "X-AspNet-Version",
             "X-SourceFiles",
             "X-AspNetMvc-Version"
         };
         
-        // Headers to add
-        _additionalSecurityHeaders = new Dictionary<string, string>
+        // Carefully configured security headers
+        _securityHeaders = new Dictionary<string, string>
         {
+            // Prevent MIME type sniffing
             { "X-Content-Type-Options", "nosniff" },
+            
+            // Prevent clickjacking completely
             { "X-Frame-Options", "DENY" },
-            { "Content-Security-Policy", "default-src 'self'" },
+            
+            // Restrictive Content Security Policy
+            { "Content-Security-Policy", 
+                "default-src 'self'; " +
+                "script-src 'self'; " +
+                "style-src 'self'; " +
+                "img-src 'self' data:; " +
+                "connect-src 'self'; " +
+                "font-src 'self'; " +
+                "object-src 'none'; " +
+                "base-uri 'self'; " +
+                "form-action 'none'"
+            },
+            
+            // Strict referrer policy
             { "Referrer-Policy", "strict-origin-when-cross-origin" },
-            { "X-XSS-Protection", "1; mode=block" }
+            
+            // Minimal, restrictive permissions policy
+            { "Permissions-Policy", "geolocation=(), camera=(), microphone=(), payment=()" },
+            
+            // HTTP Strict Transport Security (HSTS)
+            { "Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload" },
+            
+            // Disable old XSS filter, rely on CSP
+            { "X-XSS-Protection", "0" }
         };
     }
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Register a callback that runs after the response headers are generated 
-        // but before they're sent to the client
+        // Skip security headers for specific routes
+        if (ShouldSkipSecurityHeaders(context.Request.Path))
+        {
+            await _next(context);
+            return;
+        }
+
+        // Register a callback to modify headers after response generation
         context.Response.OnStarting(() =>
         {
             // Remove unsafe headers
-            foreach (var header in _unsafeResponseHeaders)
-            {
-                if (context.Response.Headers.ContainsKey(header))
-                {
-                    context.Response.Headers.Remove(header);
-                }
-            }
+            RemoveUnsafeHeaders(context.Response.Headers);
             
             // Add security headers
-            foreach (var header in _additionalSecurityHeaders)
-            {
-                if (!context.Response.Headers.ContainsKey(header.Key))
-                {
-                    context.Response.Headers[header.Key] = header.Value;
-                }
-            }
+            AddSecurityHeaders(context.Response.Headers);
             
             return Task.CompletedTask;
         });
 
-        // Call the next middleware in the pipeline
         await _next(context);
+    }
+
+    private bool ShouldSkipSecurityHeaders(PathString path)
+    {
+        return path.StartsWithSegments("/swagger") || 
+               path.StartsWithSegments("/static") ||
+               path.StartsWithSegments("/index.html") ||
+               path.StartsWithSegments("/health/live");
+    }
+
+    private void RemoveUnsafeHeaders(IHeaderDictionary headers)
+    {
+        foreach (var header in _unsafeResponseHeaders)
+        {
+            if (headers.ContainsKey(header))
+            {
+                headers.Remove(header);
+            }
+        }
+    }
+
+    private void AddSecurityHeaders(IHeaderDictionary headers)
+    {
+        foreach (var header in _securityHeaders)
+        {
+            if (!headers.ContainsKey(header.Key))
+            {
+                headers[header.Key] = header.Value;
+            }
+        }
     }
 }
 
-/// <summary>
-/// Extension method to make it easier to add the middleware to the pipeline
-/// </summary>
+// Extension method to make middleware registration easy
 public static class SecurityHeadersMiddlewareExtensions
 {
     public static IApplicationBuilder UseSecurityHeaders(this IApplicationBuilder builder)

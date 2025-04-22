@@ -47,14 +47,19 @@ $webConfigContent = @"
     <httpProtocol>
       <customHeaders>
         <remove name="X-Powered-By" />
-        <add name="Content-Security-Policy" value="default-src *; style-src 'self' http://* 'unsafe-inline'; script-src 'self' http://* 'unsafe-inline' 'unsafe-eval'; img-src 'self' http://* data:;" />
-        <add name="Permissions-Policy" value="" />
-        <add name="Referrer-Policy" value="no-referrer" />
-        <add name="Strict-Transport-Security" value="max-age=31536000; includeSubDomains" />
+        <remove name="X-Content-Type-Options" />
+        <remove name="X-Frame-Options" />
+        <remove name="Strict-Transport-Security" />
+        <remove name="Referrer-Policy" />
+        <remove name="Permissions-Policy" />
+        <remove name="Content-Security-Policy" />
+
         <add name="X-Content-Type-Options" value="nosniff" />
-        <add name="X-Frame-Options" value="SAMEORIGIN" />
-        <add name="X-Powered-By" value="cache" />
-        <add name="Server" value="Windows-Azure-Web/1.0" />
+        <add name="X-Frame-Options" value="DENY" />
+        <add name="Strict-Transport-Security" value="max-age=31536000; includeSubDomains; preload" />
+        <add name="Referrer-Policy" value="strict-origin-when-cross-origin" />
+        <add name="Permissions-Policy" value="geolocation=(), camera=(), microphone=(), payment=()" />
+        <add name="Content-Security-Policy" value="default-src 'self'; script-src 'self' https://online.swagger.io https://validator.swagger.io; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://online.swagger.io https://validator.swagger.io; connect-src 'self' https://online.swagger.io https://validator.swagger.io; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'" />
       </customHeaders>
     </httpProtocol>
   </system.webServer>

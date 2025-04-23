@@ -18,22 +18,23 @@ namespace PortwayApi.Tests.Base
         protected readonly HttpClient _client;
         protected readonly Mock<IEnvironmentSettingsProvider> _mockEnvironmentSettingsProvider;
         protected readonly Mock<UrlValidator> _mockUrlValidator;
-        protected readonly Mock<EnvironmentSettings> _mockEnvironmentSettings;
         protected readonly Mock<IODataToSqlConverter> _mockODataToSqlConverter;
         protected readonly Mock<SqlConnectionPoolService> _mockConnectionPoolService;
         protected readonly WebApplicationFactory<Program> _factory;
+        
+        // Instead of mocking EnvironmentSettings, we'll create a test implementation
+        protected readonly TestEnvironmentSettings _testEnvironmentSettings;
 
         public ApiTestBase()
         {
             _mockEnvironmentSettingsProvider = new Mock<IEnvironmentSettingsProvider>();
             _mockUrlValidator = new Mock<UrlValidator>(MockBehavior.Loose, "path");
-            _mockEnvironmentSettings = new Mock<EnvironmentSettings>();
             _mockODataToSqlConverter = new Mock<IODataToSqlConverter>();
             _mockConnectionPoolService = new Mock<SqlConnectionPoolService>();
-
-            // Setup environment settings
-            _mockEnvironmentSettings.Setup(e => e.IsEnvironmentAllowed(It.IsAny<string>())).Returns(true);
-            _mockEnvironmentSettings.Setup(e => e.AllowedEnvironments).Returns(new List<string> { "600", "700" });
+            
+            // Create a test implementation that we can control directly
+            _testEnvironmentSettings = new TestEnvironmentSettings();
+            _testEnvironmentSettings.SetAllowedEnvironments(new List<string> { "600", "700" });
 
             // Setup environment settings provider
             _mockEnvironmentSettingsProvider.Setup(p => p.LoadEnvironmentOrThrowAsync(It.IsAny<string>()))
@@ -50,7 +51,7 @@ namespace PortwayApi.Tests.Base
                     {
                         // Replace services with mocks
                         services.AddSingleton(_mockEnvironmentSettingsProvider.Object);
-                        services.AddSingleton(_mockEnvironmentSettings.Object);
+                        services.AddSingleton<EnvironmentSettings>(_testEnvironmentSettings); // Use our test implementation
                         services.AddSingleton(_mockUrlValidator.Object);
                         services.AddSingleton(_mockODataToSqlConverter.Object);
                         services.AddSingleton(_mockConnectionPoolService.Object);
@@ -87,6 +88,33 @@ namespace PortwayApi.Tests.Base
         protected void AddAuthorizationHeader(string token = "test-token")
         {
             _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+        
+        // Helper method to set allowed environments for a test
+        protected void SetAllowedEnvironments(params string[] environments)
+        {
+            _testEnvironmentSettings.SetAllowedEnvironments(environments.ToList());
+        }
+    }
+    
+    // Test implementation that we can control directly without mocking
+    public class TestEnvironmentSettings : EnvironmentSettings
+    {
+        private List<string> _allowedEnvironments = new List<string> { "600", "700" };
+        
+        public void SetAllowedEnvironments(List<string> environments)
+        {
+            _allowedEnvironments = environments.ToList();
+        }
+        
+        public virtual bool IsEnvironmentAllowed(string environment)
+        {
+            return _allowedEnvironments.Contains(environment, StringComparer.OrdinalIgnoreCase);
+        }
+        
+        public virtual List<string> GetAllowedEnvironments()
+        {
+            return _allowedEnvironments.ToList();
         }
     }
 }

@@ -733,9 +733,22 @@ public class EndpointController : ControllerBase
             }
         }
 
-        // Add custom headers
-        requestMessage.Headers.Add("DatabaseName", env);
-        requestMessage.Headers.Add("ServerName", Environment.MachineName);
+        // Load environment settings
+        var (_, _, envHeaders) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
+
+        // Add headers from environment settings
+        foreach (var header in envHeaders)
+        {
+            try
+            {
+                requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                Log.Debug("Added environment header: {HeaderKey}={HeaderValue}", header.Key, header.Value);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Could not add environment header {HeaderKey}", header.Key);
+            }
+        }
 
         // Send the request
         var response = await client.SendAsync(requestMessage);
@@ -892,7 +905,7 @@ public class EndpointController : ControllerBase
         try
         {
             // Validate environment and get connection string
-            var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
+            var (connectionString, serverName, _) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
 
             if (string.IsNullOrWhiteSpace(connectionString))
             {
@@ -1036,7 +1049,7 @@ public class EndpointController : ControllerBase
             }
 
             // Step 1: Validate environment
-            var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
+            var (connectionString, serverName, _) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
             {
                 return BadRequest(new { 
@@ -1205,7 +1218,7 @@ public class EndpointController : ControllerBase
             }
 
             // Validate environment
-            var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
+            var (connectionString, serverName, _) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
             {
                 return CreateErrorResponse($"Invalid or missing environment: {env}");
@@ -1349,7 +1362,7 @@ public class EndpointController : ControllerBase
             }
 
             // Step 1: Validate environment
-            var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
+            var (connectionString, serverName, _) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
             {
                 return BadRequest(new { 
@@ -1466,7 +1479,7 @@ public class EndpointController : ControllerBase
             }
 
             // Validate environment
-            var (connectionString, serverName) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
+            var (connectionString, serverName, _) = await _environmentSettingsProvider.LoadEnvironmentOrThrowAsync(env);
             if (string.IsNullOrEmpty(connectionString))
             {
                 return BadRequest(new { 

@@ -188,18 +188,22 @@ public static class SwaggerConfiguration
     {
         if (!swaggerSettings.Enabled)
             return;
-            
+                
         app.UseSwagger(options => {
             options.PreSerializeFilters.Add((swagger, httpReq) => {
-                // Use the BaseProtocol setting if provided, otherwise use the request's scheme
-                string scheme = swaggerSettings.BaseProtocol ?? httpReq.Scheme;
+                // Use the actual request scheme instead of forcing a specific one
+                string scheme = httpReq.Scheme;
                 
-                // Force HTTPS in production or for public domains
-                string host = httpReq.Host.Value;
+                // Only force HTTPS if explicitly configured AND in production
                 bool isProduction = !app.Environment.IsDevelopment();
+                bool forceHttps = swaggerSettings.ForceHttpsInProduction && isProduction;
                 
-                if ((swaggerSettings.ForceHttpsInProduction && isProduction) || 
-                    (host.Contains(".") && !host.Contains("localhost") && !host.Contains("127.0.0.1"))) {
+                // Check if running on localhost or a development machine
+                string host = httpReq.Host.Value;
+                bool isLocalhost = host.Contains("localhost") || host.Contains("127.0.0.1");
+                
+                // Only force HTTPS for production domains, not localhost
+                if (forceHttps && !isLocalhost) {
                     scheme = "https";
                     Log.Information("🔒 Forcing HTTPS in Swagger documentation: Environment={Env}, Host={Host}", 
                         app.Environment.EnvironmentName, host);
@@ -217,6 +221,7 @@ public static class SwaggerConfiguration
             });
         });
         
+        // Rest of the method remains unchanged
         app.UseSwaggerUI(c =>
         {
             c.SwaggerEndpoint($"/swagger/{swaggerSettings.Version}/swagger.json", $"{swaggerSettings.Title} {swaggerSettings.Version}");

@@ -80,7 +80,7 @@ Add a settings file for each environment:
   "AllowedColumns": [
     "ItemCode","Description","Assortment","sysguid"
   ],
-  "AllowedEnvironments": ["600","700"]
+  "AllowedEnvironments": ["prod","dev"]
 }
 ```
 
@@ -90,7 +90,7 @@ Add a settings file for each environment:
 { 
   "Url": "http://localhost:8020/services/Exact.Entity.REST.EG/Account", 
   "Methods": ["GET", "POST", "PUT", "DELETE","MERGE"],
-  "AllowedEnvironments": ["600","700"]
+  "AllowedEnvironments": ["prod","dev"]
 }
 ```
 

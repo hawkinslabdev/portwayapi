@@ -79,7 +79,8 @@ Add a settings file for each environment:
   "PrimaryKey": "ItemCode",
   "AllowedColumns": [
     "ItemCode","Description","Assortment","sysguid"
-  ]
+  ],
+  "AllowedEnvironments": ["600","700"]
 }
 ```
 
@@ -88,7 +89,8 @@ Add a settings file for each environment:
 ```json
 { 
   "Url": "http://localhost:8020/services/Exact.Entity.REST.EG/Account", 
-  "Methods": ["GET", "POST", "PUT", "DELETE","MERGE"] 
+  "Methods": ["GET", "POST", "PUT", "DELETE","MERGE"],
+  "AllowedEnvironments": ["600","700"]
 }
 ```
 

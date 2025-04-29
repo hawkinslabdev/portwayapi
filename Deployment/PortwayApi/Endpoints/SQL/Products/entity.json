@@ -4,5 +4,6 @@
     "PrimaryKey": "ItemCode",
     "AllowedColumns": [
         "ItemCode","Description","Assortment","sysguid"
-    ]
+    ],
+    "AllowedEnvironments": ["600"]
 }

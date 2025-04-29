@@ -7,6 +7,9 @@ using Serilog;
 /// <summary>
 /// Represents an endpoint entity with extended support for composite operations
 /// </summary>
+/// <summary>
+/// Represents an endpoint entity with extended support for composite operations
+/// </summary>
 public class ExtendedEndpointEntity
 {
     public string Url { get; set; } = string.Empty;
@@ -14,6 +17,7 @@ public class ExtendedEndpointEntity
     public string Type { get; set; } = "Standard"; // "Standard" or "Composite"
     public CompositeDefinition? CompositeConfig { get; set; }
     public bool IsPrivate { get; set; } = false; // If true, endpoint won't be exposed in the API
+    public List<string>? AllowedEnvironments { get; set; } // List of environments that can access this endpoint
 }
 
 /// <summary>
@@ -37,6 +41,7 @@ public class EndpointEntity
     public bool IsPrivate { get; set; } = false;
     public string Type { get; set; } = "Standard"; // Standard, SQL, Composite
     public CompositeDefinition? CompositeConfig { get; set; }
+    public List<string>? AllowedEnvironments { get; set; }
 }
 
 /// <summary>

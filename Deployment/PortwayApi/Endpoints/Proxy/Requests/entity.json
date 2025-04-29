@@ -1,4 +1,5 @@
 { 
     "Url": "http://localhost/Synergy/services/Exact.Entity.REST.svc/Request", 
-    "Methods": ["GET"] 
+    "Methods": ["GET"],
+    "AllowedEnvironments": ["Synergy"]
 } 

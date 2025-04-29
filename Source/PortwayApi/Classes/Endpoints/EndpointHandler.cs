@@ -19,7 +19,10 @@ public class EndpointDefinition
     public string? DatabaseSchema { get; set; }
     public List<string>? AllowedColumns { get; set; }
     public string? Procedure { get; set; }
-    public string? PrimaryKey { get; set; }  // Add this property
+    public string? PrimaryKey { get; set; }
+    
+    // Environment restrictions
+    public List<string>? AllowedEnvironments { get; set; }
 
     // Helper properties to simplify type checking
     public bool IsStandard => Type == EndpointType.Standard && !IsPrivate;
@@ -60,6 +63,16 @@ public static class EndpointHandler
         return _loadedSqlWebhookEndpoints!;
     }
     
+    /// <summary>
+    /// Gets Proxy endpoints from the /endpoints/Proxy directory
+    /// </summary>
+    public static Dictionary<string, EndpointDefinition> GetProxyEndpoints()
+    {
+        string proxyEndpointsDirectory = Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Proxy");
+        LoadProxyEndpointsIfNeeded(proxyEndpointsDirectory);
+        return _loadedProxyEndpoints!;
+    }
+
     /// <summary>
     /// Gets all composite endpoint definitions from the endpoints directory
     /// </summary>
@@ -359,7 +372,7 @@ public static class EndpointHandler
 
         return endpoints;
     }
-    
+
     /// <summary>
     /// Parses a proxy endpoint definition from JSON, handling both legacy and extended formats
     /// </summary>
@@ -379,7 +392,8 @@ public static class EndpointHandler
                     Methods = extendedEntity.Methods,
                     IsPrivate = extendedEntity.IsPrivate,
                     Type = ParseEndpointType(extendedEntity.Type),
-                    CompositeConfig = extendedEntity.CompositeConfig
+                    CompositeConfig = extendedEntity.CompositeConfig,
+                    AllowedEnvironments = extendedEntity.AllowedEnvironments
                 };
             }
             
@@ -395,7 +409,8 @@ public static class EndpointHandler
                     Methods = entity.Methods,
                     IsPrivate = false, // Legacy format doesn't support IsPrivate
                     Type = EndpointType.Standard,
-                    CompositeConfig = null
+                    CompositeConfig = null,
+                    AllowedEnvironments = entity.AllowedEnvironments
                 };
             }
         }
@@ -430,8 +445,9 @@ public static class EndpointHandler
                     DatabaseSchema = schema,
                     AllowedColumns = entity.AllowedColumns ?? new List<string>(),
                     Procedure = entity.Procedure,
-                    PrimaryKey = entity.PrimaryKey,  // Add this line
-                    Methods = allowedMethods
+                    PrimaryKey = entity.PrimaryKey,
+                    Methods = allowedMethods,
+                    AllowedEnvironments = entity.AllowedEnvironments
                 };
             }
         }
@@ -442,7 +458,7 @@ public static class EndpointHandler
         
         return null;
     }
-    
+
     /// <summary>
     /// Converts a string type to the EndpointType enum
     /// </summary>

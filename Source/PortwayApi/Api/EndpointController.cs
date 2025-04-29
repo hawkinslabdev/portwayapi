@@ -33,6 +33,69 @@ public class EndpointController : ControllerBase
     private readonly CompositeEndpointHandler _compositeHandler;
     private readonly SqlConnectionPoolService _connectionPoolService; 
 
+    /// <summary>
+    /// Validates if the environment is allowed both globally and for the specific endpoint
+    /// </summary>
+    private (bool IsAllowed, IActionResult? ErrorResponse) ValidateEnvironmentRestrictions(
+        string env,
+        string endpointName,
+        EndpointType endpointType)
+    {
+        // First check if environment is in the globally allowed list
+        if (!_environmentSettings.IsEnvironmentAllowed(env))
+        {
+            Log.Warning("❌ Environment '{Env}' is not in the global allowed list.", env);
+            return (false, BadRequest(new { error = $"Environment '{env}' is not allowed." }));
+        }
+
+        // Then check endpoint-specific environment restrictions
+        List<string>? allowedEnvironments = null;
+        
+        switch (endpointType)
+        {
+            case EndpointType.SQL:
+                var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+                if (sqlEndpoints.TryGetValue(endpointName, out var sqlEndpoint))
+                {
+                    allowedEnvironments = sqlEndpoint.AllowedEnvironments;
+                }
+                break;
+                
+            case EndpointType.Proxy:
+                var proxyEndpoints = EndpointHandler.GetEndpoints(
+                    Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Proxy"));
+                    
+                if (proxyEndpoints.TryGetValue(endpointName, out var proxyConfig))
+                {
+                    // Get the full endpoint definition to access AllowedEnvironments
+                    var endpointDefinitions = EndpointHandler.GetProxyEndpoints();
+                    if (endpointDefinitions.TryGetValue(endpointName, out var proxyEndpoint))
+                    {
+                        allowedEnvironments = proxyEndpoint.AllowedEnvironments;
+                    }
+                }
+                break;
+                
+            case EndpointType.Webhook:
+                var webhookEndpoints = EndpointHandler.GetSqlWebhookEndpoints();
+                if (webhookEndpoints.TryGetValue(endpointName, out var webhookEndpoint))
+                {
+                    allowedEnvironments = webhookEndpoint.AllowedEnvironments;
+                }
+                break;
+        }
+
+        if (allowedEnvironments != null && 
+            allowedEnvironments.Count > 0 &&
+            !allowedEnvironments.Contains(env, StringComparer.OrdinalIgnoreCase))
+        {
+            Log.Warning("❌ Environment '{Env}' is not allowed for endpoint '{Endpoint}'.", env, endpointName);
+            return (false, BadRequest(new { error = $"Environment '{env}' is not allowed for this endpoint." }));
+        }
+
+        // Environment is allowed
+        return (true, null);
+    }
     public EndpointController(
         IHttpClientFactory httpClientFactory,
         UrlValidator urlValidator,
@@ -73,14 +136,14 @@ public class EndpointController : ControllerBase
         {
             // Process the catchall to determine what type of endpoint we're dealing with
             var (endpointType, endpointName, id, remainingPath) = ParseEndpoint(catchall);
-            
+            var _allowedEnvironments = new List<string>();
             Log.Debug("🔄 Processing {Type} endpoint: {Name}", endpointType, endpointName);
 
-            // Check if environment is allowed
-            if (!_environmentSettings.IsEnvironmentAllowed(env))
+            // Check environment restrictions
+            var (isAllowed, errorResponse) = ValidateEnvironmentRestrictions(env, endpointName, endpointType);
+            if (!isAllowed)
             {
-                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
-                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
+                return errorResponse!;
             }
 
             switch (endpointType)
@@ -130,11 +193,11 @@ public class EndpointController : ControllerBase
             
             Log.Debug("🔄 Processing {Type} endpoint: {Name} for POST", endpointType, endpointName);
 
-            // Check if environment is allowed
-            if (!_environmentSettings.IsEnvironmentAllowed(env))
+            // Check environment restrictions
+            var (isAllowed, errorResponse) = ValidateEnvironmentRestrictions(env, endpointName, endpointType);
+            if (!isAllowed)
             {
-                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
-                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
+                return errorResponse!;
             }
 
             // Read the request body - we'll need it for several endpoint types
@@ -200,11 +263,11 @@ public class EndpointController : ControllerBase
             
             Log.Debug("🔄 Processing {Type} endpoint: {Name} for PUT", endpointType, endpointName);
 
-            // Check if environment is allowed
-            if (!_environmentSettings.IsEnvironmentAllowed(env))
+            // Check environment restrictions
+            var (isAllowed, errorResponse) = ValidateEnvironmentRestrictions(env, endpointName, endpointType);
+            if (!isAllowed)
             {
-                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
-                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
+                return errorResponse!;
             }
 
             // Read the request body for SQL endpoint
@@ -261,11 +324,11 @@ public class EndpointController : ControllerBase
             
             Log.Debug("🔄 Processing {Type} endpoint: {Name} for DELETE", endpointType, endpointName);
 
-            // Check if environment is allowed
-            if (!_environmentSettings.IsEnvironmentAllowed(env))
+            // Check environment restrictions
+            var (isAllowed, errorResponse) = ValidateEnvironmentRestrictions(env, endpointName, endpointType);
+            if (!isAllowed)
             {
-                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
-                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
+                return errorResponse!;
             }
 
             switch (endpointType)
@@ -325,11 +388,11 @@ public class EndpointController : ControllerBase
             
             Log.Debug("🔄 Processing {Type} endpoint: {Name} for PATCH", endpointType, endpointName);
 
-            // Check if environment is allowed
-            if (!_environmentSettings.IsEnvironmentAllowed(env))
+            // Check environment restrictions
+            var (isAllowed, errorResponse) = ValidateEnvironmentRestrictions(env, endpointName, endpointType);
+            if (!isAllowed)
             {
-                Log.Warning("❌ Environment '{Env}' is not in the allowed list.", env);
-                return BadRequest(new { error = $"Environment '{env}' is not allowed." });
+                return errorResponse!;
             }
 
             // Currently only proxy endpoints support PATCH

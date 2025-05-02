@@ -1,5 +1,6 @@
 {
     "DatabaseObjectName": "CSAdvDebtorOutstanding",
-    "DatabaseSchema": "dbo"
+    "DatabaseSchema": "dbo",
+    "AllowedEnvironments": ["600","700"]
 }
   

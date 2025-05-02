@@ -5,5 +5,5 @@
     "AllowedColumns": [
         "ItemCode","Description","Assortment","sysguid"
     ],
-    "AllowedEnvironments": ["600"]
+    "AllowedEnvironments": ["600","700"]
 }

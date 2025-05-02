@@ -26,5 +26,6 @@
         }
       }
     ]
-  }
+  },
+  "AllowedEnvironments": ["600","700"]
 }

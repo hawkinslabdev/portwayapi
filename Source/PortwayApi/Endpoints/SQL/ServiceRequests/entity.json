@@ -19,5 +19,6 @@
       "DueDate"
     ],
     "Procedure": "dbo.sp_ManageServiceRequests",
-    "AllowedMethods": ["GET", "POST", "PUT"]
+    "AllowedMethods": ["GET", "POST", "PUT"],
+    "AllowedEnvironments": ["600"]
   }

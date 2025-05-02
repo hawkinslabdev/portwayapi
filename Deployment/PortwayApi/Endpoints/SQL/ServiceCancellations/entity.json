@@ -6,5 +6,6 @@
       "Status"
     ],
     "Procedure": "dbo.sp_ManageServiceRequests",
-    "AllowedMethods": ["DELETE"]
+    "AllowedMethods": ["DELETE"],
+    "AllowedEnvironments": ["600"]
   }

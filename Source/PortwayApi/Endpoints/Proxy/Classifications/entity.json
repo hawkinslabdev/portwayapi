@@ -1,4 +1,5 @@
 { 
     "Url": "http://localhost:8020/services/Exact.Entity.REST.EG/Classification", 
-    "Methods": ["GET"] 
+    "Methods": ["GET"],
+    "AllowedEnvironments": ["600","700"]
 } 

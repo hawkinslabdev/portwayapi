@@ -41,13 +41,11 @@ namespace TokenGenerator
         public required string TokenHash { get; set; } = string.Empty;
         public required string TokenSalt { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public DateTime? RevokedAt { get; set; } = null;
-        
-        // Added missing properties that exist in the PortwayAPI model
+        public DateTime? RevokedAt { get; set; } = null;        
         public DateTime? ExpiresAt { get; set; } = null;
         public string AllowedScopes { get; set; } = "*"; // Default to full access
+        public string AllowedEnvironments { get; set; } = "*"; // Default to full access
         public string Description { get; set; } = string.Empty;
-        
         public bool IsActive => RevokedAt == null && (ExpiresAt == null || ExpiresAt > DateTime.UtcNow);
     }
 
@@ -178,6 +176,7 @@ namespace TokenGenerator
         public string? TokensFolder { get; set; }
         public string? Username { get; set; }
         public string? Scopes { get; set; }
+        public string? Environments { get; set; }
         public string? Description { get; set; }
         public int? ExpiresInDays { get; set; }
         public bool ShowHelp { get; set; }
@@ -212,7 +211,8 @@ namespace TokenGenerator
         
         public async Task<string> GenerateTokenAsync(
             string username, 
-            string allowedScopes = "*", 
+            string allowedScopes = "*",
+            string allowedEnvironments = "*", 
             string description = "",
             int? expiresInDays = null)
         {
@@ -265,6 +265,7 @@ namespace TokenGenerator
                 CreatedAt = DateTime.UtcNow,
                 ExpiresAt = expiresAt,
                 AllowedScopes = allowedScopes,
+                AllowedEnvironments = allowedEnvironments,
                 Description = description
             };
             
@@ -272,8 +273,8 @@ namespace TokenGenerator
             _dbContext.Tokens.Add(tokenEntry);
             await _dbContext.SaveChangesAsync();
             
-            // Save token to file
-            await SaveTokenToFileAsync(username, token, allowedScopes, expiresAt, description);
+            // Save token to file - update this method call to include environments
+            await SaveTokenToFileAsync(username, token, allowedScopes, allowedEnvironments, expiresAt, description);
             
             return token;
         }
@@ -344,14 +345,15 @@ namespace TokenGenerator
                     
                     if (tokenInfo != null)
                     {
-                        // Update the scopes
                         tokenInfo.AllowedScopes = newScopes;
                         
-                        // Save the updated file
+                        string environments = tokenInfo.AllowedEnvironments ?? token.AllowedEnvironments ?? "*";
+                        
                         await SaveTokenToFileAsync(
                             token.Username, 
                             tokenInfo.Token, 
-                            newScopes, 
+                            newScopes,
+                            environments, 
                             token.ExpiresAt, 
                             token.Description);
                             
@@ -366,7 +368,50 @@ namespace TokenGenerator
             
             return true;
         }
-
+        public async Task<bool> UpdateTokenEnvironmentsAsync(int id, string newEnvironments)
+        {
+            var token = await _dbContext.Tokens.FindAsync(id);
+            if (token == null)
+                return false;
+                
+            token.AllowedEnvironments = newEnvironments;
+            await _dbContext.SaveChangesAsync();
+            
+            // Update token file if it exists
+            string filePath = Path.Combine(_tokenFolderPath, $"{token.Username}.txt");
+            if (File.Exists(filePath))
+            {
+                try
+                {
+                    // Read the existing token file to preserve the token value
+                    string jsonContent = await File.ReadAllTextAsync(filePath);
+                    var tokenInfo = JsonSerializer.Deserialize<TokenFileInfo>(jsonContent);
+                    
+                    if (tokenInfo != null)
+                    {
+                        // Update the environments
+                        tokenInfo.AllowedEnvironments = newEnvironments;
+                        
+                        // Save the updated file
+                        await SaveTokenToFileAsync(
+                            token.Username, 
+                            tokenInfo.Token, 
+                            token.AllowedScopes, 
+                            newEnvironments, 
+                            token.ExpiresAt, 
+                            token.Description);
+                            
+                        Log.Information("Updated environments in token file for {Username}", token.Username);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Could not update token file for {Username}", token.Username);
+                }
+            }
+            
+            return true;
+        }
         public async Task<bool> UpdateTokenExpirationAsync(int id, int? daysValid)
         {
             var token = await _dbContext.Tokens.FindAsync(id);
@@ -393,11 +438,15 @@ namespace TokenGenerator
                     
                     if (tokenInfo != null)
                     {
-                        // Update the expiration
+                        // Preserve the existing AllowedEnvironments value from tokenInfo
+                        string environments = tokenInfo.AllowedEnvironments ?? token.AllowedEnvironments ?? "*";
+                        
+                        // Update the expiration with all parameters properly set
                         await SaveTokenToFileAsync(
                             token.Username, 
                             tokenInfo.Token, 
-                            token.AllowedScopes, 
+                            token.AllowedScopes,
+                            environments,
                             expiresAt, 
                             token.Description);
                             
@@ -445,6 +494,7 @@ namespace TokenGenerator
             public string Username { get; set; } = string.Empty;
             public string Token { get; set; } = string.Empty;
             public string AllowedScopes { get; set; } = "*";
+            public string AllowedEnvironments { get; set; } = "*";
             public string ExpiresAt { get; set; } = "Never";
             public string CreatedAt { get; set; } = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
             public string Description { get; set; } = string.Empty;
@@ -475,6 +525,7 @@ namespace TokenGenerator
             string username, 
             string token, 
             string allowedScopes = "*", 
+            string allowedEnvironments = "*", // Add this parameter
             DateTime? expiresAt = null,
             string description = "")
         {
@@ -496,6 +547,7 @@ namespace TokenGenerator
                     Username = username,
                     Token = token,
                     AllowedScopes = allowedScopes,
+                    AllowedEnvironments = allowedEnvironments, // Add this property
                     ExpiresAt = expiresAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never",
                     CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
                     Description = string.IsNullOrEmpty(description) 
@@ -512,6 +564,16 @@ namespace TokenGenerator
                                 "* (access to all endpoints)",
                                 "Products,Customers (access to only these endpoints)",
                                 "Product* (access to all endpoints starting with Product)"
+                            }
+                        },
+                        EnvironmentInformation = new // Add this section
+                        {
+                            Format = "Comma-separated list of environment names, or * for all environments",
+                            Examples = new[]
+                            {
+                                "* (access to all environments)",
+                                "600,700,Synergy (access to only these environments)",
+                                "6* (access to all environments starting with 6)"
                             }
                         }
                     }
@@ -584,11 +646,12 @@ namespace TokenGenerator
                 }
 
                 // If username was provided as a command-line argument, generate token for that user
-                if (!string.IsNullOrWhiteSpace(options.Username))
+                if (!string.IsNullOrWhiteSpace(options.Username) || args.Length > 0)
                 {
                     await GenerateTokenForUserAsync(
-                        options.Username, 
-                        options.Scopes ?? "*", 
+                        options.Username ?? "", 
+                        options.Scopes ?? "*",
+                        options.Environments ?? "*",
                         options.Description ?? "",
                         options.ExpiresInDays,
                         serviceProvider);
@@ -617,6 +680,9 @@ namespace TokenGenerator
                             await UpdateTokenScopesAsync(serviceProvider);
                             break;
                         case "5":
+                            await UpdateTokenEnvironmentsAsync(serviceProvider);
+                            break;
+                        case "6":
                             await UpdateTokenExpirationAsync(serviceProvider);
                             break;
                         case "0":
@@ -666,14 +732,17 @@ namespace TokenGenerator
             Console.WriteLine("  -d, --database <path>         Specify the path to the auth.db file");
             Console.WriteLine("  -t, --tokens <path>           Specify the folder to store token files");
             Console.WriteLine("  -s, --scopes <scopes>         Specify allowed scopes (comma-separated or * for all)");
+            Console.WriteLine("  -e, --environments <envs>     Specify allowed environments (comma-separated or * for all)");
             Console.WriteLine("  --description <text>          Add a description for the token");
             Console.WriteLine("  --expires <days>              Set token expiration in days");
             Console.WriteLine();
             Console.WriteLine("Examples:");
-            Console.WriteLine("  TokenGenerator.exe                               Run in interactive mode");
-            Console.WriteLine("  TokenGenerator.exe -d \"C:\\path\\to\\auth.db\"     Use specific database file");
-            Console.WriteLine("  TokenGenerator.exe admin                         Generate token for user 'admin'");
+            Console.WriteLine("  TokenGenerator.exe                                 Run in interactive mode");
+            Console.WriteLine("  TokenGenerator.exe -d \"C:\\path\\to\\auth.db\"    Use specific database file");
+            Console.WriteLine("  TokenGenerator.exe                                 Generate token with auto-generated UUID username");
+            Console.WriteLine("  TokenGenerator.exe admin                           Generate token for user 'admin'");
             Console.WriteLine("  TokenGenerator.exe admin -s \"Products,Orders\"    Generate token with specific scopes");
+            Console.WriteLine("  TokenGenerator.exe admin -e \"prod,dev\"           Generate token for specific environments");
             Console.WriteLine("  TokenGenerator.exe -s \"*\" --expires 90 admin     Generate token that expires in 90 days");
         }
 
@@ -725,6 +794,14 @@ namespace TokenGenerator
                             options.Scopes = args[++i];
                         }
                         break;
+
+                    case "-e":
+                    case "--environments":
+                        if (i + 1 < args.Length)
+                        {
+                            options.Environments = args[++i];
+                        }
+                        break;
                         
                     case "--description":
                         if (i + 1 < args.Length)
@@ -763,7 +840,8 @@ namespace TokenGenerator
             Console.WriteLine("2. Generate new token");
             Console.WriteLine("3. Revoke token");
             Console.WriteLine("4. Update token scopes");
-            Console.WriteLine("5. Update token expiration");
+            Console.WriteLine("5. Update token environments");
+            Console.WriteLine("6. Update token expiration");
             Console.WriteLine("0. Exit");
             Console.WriteLine("-----------------------------------------------");
             Console.Write("Select an option: ");
@@ -783,8 +861,8 @@ namespace TokenGenerator
             }
 
             Console.WriteLine("\n=== Active Tokens ===");
-            Console.WriteLine($"{"ID",-5} {"Username",-20} {"Created",-20} {"Expires",-20} {"Scopes",-25} {"Token File",-15}");
-            Console.WriteLine(new string('-', 90));
+            Console.WriteLine($"{"ID",-5} {"Username",-20} {"Created",-20} {"Expires",-20} {"Scopes",-15} {"Environments",-15}");
+            Console.WriteLine(new string('-', 100));
 
             string tokenFolderPath = tokenService.GetTokenFolderPath();
             
@@ -794,14 +872,20 @@ namespace TokenGenerator
                 string tokenFileStatus = File.Exists(tokenFilePath) ? "Available" : "Missing";
                 string expiration = token.ExpiresAt?.ToString("yyyy-MM-dd") ?? "Never";
                 
-                // Truncate scopes if too long
+                // Truncate scopes and environments if too long
                 string scopes = token.AllowedScopes;
-                if (scopes.Length > 25)
+                if (scopes.Length > 15)
                 {
-                    scopes = scopes.Substring(0, 22) + "...";
+                    scopes = scopes.Substring(0, 12) + "...";
+                }
+                
+                string environments = token.AllowedEnvironments;
+                if (environments.Length > 15)
+                {
+                    environments = environments.Substring(0, 12) + "...";
                 }
 
-                Console.WriteLine($"{token.Id,-5} {token.Username,-20} {token.CreatedAt.ToString("yyyy-MM-dd HH:mm"),-20} {expiration,-20} {scopes,-25} {tokenFileStatus,-15}");
+                Console.WriteLine($"{token.Id,-5} {token.Username,-20} {token.CreatedAt.ToString("yyyy-MM-dd HH:mm"),-20} {expiration,-20} {scopes,-15} {environments,-15}");
             }
         }
 
@@ -810,14 +894,21 @@ namespace TokenGenerator
             Console.WriteLine("\n=== Generate New Token ===");
             
             // Get username
-            Console.Write("Enter username (leave blank for machine name): ");
+            Console.Write("Enter username (leave blank for auto-generated UUID): ");
             string? input = Console.ReadLine();
-            string username = string.IsNullOrWhiteSpace(input) ? Environment.MachineName : input;
+            string username = string.IsNullOrWhiteSpace(input) 
+                ? $"user_{Guid.NewGuid().ToString("N").Substring(0, 8)}" 
+                : input;
 
-            // Get scopes
+            // Get scopes e.g. endpoints
             Console.Write("Enter allowed scopes (comma-separated, or * for all endpoints): ");
             string scopesInput = Console.ReadLine() ?? "*";
             string scopes = string.IsNullOrWhiteSpace(scopesInput) ? "*" : scopesInput;
+
+            // Get environments
+            Console.Write("Enter allowed environments (comma-separated, or * for all environments): ");
+            string environmentsInput = Console.ReadLine() ?? "*";
+            string environments = string.IsNullOrWhiteSpace(environmentsInput) ? "*" : environmentsInput;
 
             // Get description
             Console.Write("Enter description (optional): ");
@@ -841,6 +932,7 @@ namespace TokenGenerator
                 var token = await tokenService.GenerateTokenAsync(
                     username, 
                     scopes, 
+                    environments, 
                     description, 
                     expirationDays);
 
@@ -848,6 +940,7 @@ namespace TokenGenerator
                 Console.WriteLine($"Username: {username}");
                 Console.WriteLine($"Token: {token}");
                 Console.WriteLine($"Allowed Scopes: {scopes}");
+                Console.WriteLine($"Allowed Environments: {environments}");
                 if (expirationDays.HasValue)
                 {
                     Console.WriteLine($"Expires: In {expirationDays} days ({DateTime.Now.AddDays(expirationDays.Value):yyyy-MM-dd})");
@@ -975,6 +1068,63 @@ namespace TokenGenerator
                 Console.ResetColor();
             }
         }
+
+        static async Task UpdateTokenEnvironmentsAsync(IServiceProvider serviceProvider)
+        {
+            // Display current tokens first
+            await ListAllTokensAsync(serviceProvider);
+
+            Console.WriteLine("\n=== Update Token Environments ===");
+            Console.Write("Enter token ID to update (or 0 to cancel): ");
+            
+            if (!int.TryParse(Console.ReadLine(), out int tokenId) || tokenId <= 0)
+            {
+                Console.WriteLine("Operation cancelled.");
+                return;
+            }
+
+            using var scope = serviceProvider.CreateScope();
+            var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
+            
+            // Get the token to update
+            var token = await tokenService.GetTokenByIdAsync(tokenId);
+            if (token == null)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"Token with ID {tokenId} not found.");
+                Console.ResetColor();
+                return;
+            }
+            
+            // Display current environments
+            Console.WriteLine($"Current environments: {token.AllowedEnvironments}");
+            Console.WriteLine("\nEnvironment format options:");
+            Console.WriteLine("  * - Full access to all environments");
+            Console.WriteLine("  prod,dev - Access to specific environments (comma separated)");
+            Console.WriteLine("  pr* - Access to all environments that start with '6'");
+            
+            // Get new environments
+            Console.Write("\nEnter new environments: ");
+            string newEnvironments = Console.ReadLine() ?? "*";
+            if (string.IsNullOrWhiteSpace(newEnvironments))
+            {
+                newEnvironments = "*";
+            }
+            
+            bool result = await tokenService.UpdateTokenEnvironmentsAsync(tokenId, newEnvironments);
+            if (result)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"Token environments updated successfully for {token.Username}.");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Failed to update token environments.");
+                Console.ResetColor();
+            }
+        }
         
         static async Task UpdateTokenExpirationAsync(IServiceProvider serviceProvider)
         {
@@ -1060,12 +1210,20 @@ namespace TokenGenerator
         static async Task GenerateTokenForUserAsync(
             string username, 
             string scopes, 
+            string environments,
             string description,
             int? expiresInDays,
             IServiceProvider serviceProvider)
         {
             try
-            {                
+            {   
+                // If username is blank, generate a UUID-based one
+                if (string.IsNullOrWhiteSpace(username))
+                {
+                    username = $"user_{Guid.NewGuid().ToString("N").Substring(0, 8)}";
+                    Log.Information("No username provided. Generated UUID-based username: {Username}", username);
+                } 
+                            
                 using var scope = serviceProvider.CreateScope();
                 var tokenService = scope.ServiceProvider.GetRequiredService<TokenService>();
                 var config = scope.ServiceProvider.GetRequiredService<AppConfig>();
@@ -1073,6 +1231,7 @@ namespace TokenGenerator
                 var token = await tokenService.GenerateTokenAsync(
                     username, 
                     scopes, 
+                    environments,
                     description,
                     expiresInDays);
                 
@@ -1080,6 +1239,7 @@ namespace TokenGenerator
                 Log.Information("Username: {Username}", username);
                 Log.Information("Token: {Token}", token);
                 Log.Information("Scopes: {Scopes}", scopes);
+                Log.Information("Environments: {Environments}", environments);
                 
                 if (expiresInDays.HasValue)
                 {

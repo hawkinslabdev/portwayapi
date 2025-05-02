@@ -16,7 +16,9 @@ public class TokenAuthMiddleware
 
     public async Task InvokeAsync(HttpContext context, AuthDbContext dbContext, TokenService tokenService)
     {
+        // Extract path and environment from request
         var path = context.Request.Path.Value?.ToLowerInvariant();
+        string env = ExtractEnvironmentFromPath(context.Request.Path);
         
         // Skip token validation for specific routes
         if (path?.StartsWith("/swagger") == true || 
@@ -30,8 +32,6 @@ public class TokenAuthMiddleware
         }
         
         // Continue with authentication logic
-        Log.Debug("🔀 Incoming request: {Method} {Path}", context.Request.Method, context.Request.Path);
-
         if (!context.Request.Headers.TryGetValue("Authorization", out var providedToken))
         {
             Log.Warning("❌ Authorization header missing for {Path}", context.Request.Path);
@@ -75,26 +75,27 @@ public class TokenAuthMiddleware
             return;
         }
         
-        // Store token info in HttpContext.Items for potential use downstream
-        context.Items["TokenInfo"] = new
+        // Check environment access
+        if (!string.IsNullOrEmpty(env))
         {
-            Username = tokenDetails.Username,
-            Scopes = tokenDetails.AllowedScopes,
-            ExpiresAt = tokenDetails.ExpiresAt
-        };
-        
-        // Set username claim in HttpContext.User.Identity for easy access elsewhere
-        var identity = new ClaimsIdentity("Token");
-        identity.AddClaim(new Claim(ClaimTypes.Name, tokenDetails.Username));
-        
-        // Add scopes as claims for potential authorization policies
-        foreach (var scope in tokenDetails.GetScopesList())
-        {
-            identity.AddClaim(new Claim("scope", scope));
+            bool hasEnvironmentAccess = tokenDetails.HasAccessToEnvironment(env);
+            
+            if (!hasEnvironmentAccess)
+            {
+                Log.Warning("❌ Token lacks permission for environment {Environment}. Available environments: {Environments}", 
+                    env, tokenDetails.AllowedEnvironments);
+                
+                context.Response.StatusCode = 403;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(new { 
+                    error = $"Access denied to environment '{env}'", 
+                    availableEnvironments = tokenDetails.AllowedEnvironments,
+                    requestedEnvironment = env,
+                    success = false 
+                });
+                return;
+            }
         }
-        
-        // Set the principal
-        context.User = new ClaimsPrincipal(identity);
         
         // Check endpoint permissions if endpoint name was successfully extracted
         if (!string.IsNullOrEmpty(endpointName))
@@ -118,11 +119,11 @@ public class TokenAuthMiddleware
             }
         }
 
-        // Token is valid and has proper scopes, proceed
+        // Token is valid, has proper scopes, and access to the environment - proceed
         Log.Debug("✅ Authorized {User} for {Method} {Path}", tokenDetails.Username, context.Request.Method, context.Request.Path);
         await _next(context);
     }
-    
+
     /// <summary>
     /// Extract the endpoint name from the request path
     /// </summary>
@@ -162,6 +163,26 @@ public class TokenAuthMiddleware
         }
         
         return null;
+    }
+
+    /// <summary>
+    /// Extract the environment from the request path
+    /// </summary>
+    private string ExtractEnvironmentFromPath(PathString path)
+    {
+        var segments = path.Value?.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments == null || segments.Length < 2)
+            return string.Empty;
+            
+        // For paths like /api/{env}/...
+        if (segments[0].Equals("api", StringComparison.OrdinalIgnoreCase) && segments.Length >= 2)
+            return segments[1];
+            
+        // For paths like /webhook/{env}/...
+        if (segments[0].Equals("webhook", StringComparison.OrdinalIgnoreCase) && segments.Length >= 2)
+            return segments[1];
+            
+        return string.Empty;
     }
 }
 

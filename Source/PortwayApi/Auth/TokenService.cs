@@ -28,7 +28,8 @@ public class TokenService
     /// </summary>
     public async Task<string> GenerateTokenAsync(
         string username, 
-        string allowedScopes = "*", 
+        string allowedScopes = "*",
+        string allowedEnvironments = "*",
         string description = "", 
         int? expiresInDays = null)
     {
@@ -59,6 +60,7 @@ public class TokenService
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = expiresAt,
             AllowedScopes = allowedScopes,
+            AllowedEnvironments = allowedEnvironments,
             Description = description
         };
         
@@ -67,7 +69,7 @@ public class TokenService
         await _dbContext.SaveChangesAsync();
         
         // Save token to file
-        await SaveTokenToFileAsync(username, token, allowedScopes, expiresAt, description);
+        await SaveTokenToFileAsync(username, token, allowedScopes, allowedEnvironments, expiresAt, description);
         
         return token;
     }
@@ -164,6 +166,36 @@ public class TokenService
         
         return false;
     }
+
+    public async Task<bool> VerifyTokenForEnvironmentAsync(string token, string environment)
+    {
+        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(environment))
+            return false;
+            
+        // Get active tokens
+        var tokens = await _dbContext.Tokens
+            .Where(t => t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > DateTime.UtcNow))
+            .ToListAsync();
+            
+        // Check each token
+        foreach (var storedToken in tokens)
+        {
+            // Convert stored salt from string to bytes
+            byte[] salt = Convert.FromBase64String(storedToken.TokenSalt);
+            
+            // Hash the provided token with the stored salt
+            string hashedToken = HashToken(token, salt);
+            
+            // Compare hashed tokens
+            if (hashedToken == storedToken.TokenHash)
+            {
+                // Check if token has access to environment
+                return storedToken.HasAccessToEnvironment(environment);
+            }
+        }
+        
+        return false;
+    }
     
     /// <summary>
     /// Get token details by token string (for middleware use)
@@ -225,7 +257,8 @@ public class TokenService
     private async Task SaveTokenToFileAsync(
         string username, 
         string token, 
-        string scopes = "*", 
+        string allowedScopes = "*",
+        string allowedEnvironments = "*",   
         DateTime? expiresAt = null,
         string description = "")
     {
@@ -238,7 +271,8 @@ public class TokenService
             {
                 Username = username,
                 Token = token,
-                AllowedScopes = scopes,
+                AllowedScopes = allowedScopes,
+                AllowedEnvironments = allowedEnvironments,
                 ExpiresAt = expiresAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never",
                 CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
                 Usage = "Use this token in the Authorization header as: Bearer <token>",

@@ -34,8 +34,38 @@ public class AuthDbContext : DbContext
             
             if (tableExists)
             {
-                // Table exists, no need to create it
-                Log.Debug("✅ Tokens table already exists");
+                // Check if AllowedEnvironments column exists
+                bool hasEnvironmentColumn = false;
+                try
+                {
+                    using var cmd = Database.GetDbConnection().CreateCommand();
+                    cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Tokens') WHERE name='AllowedEnvironments'";
+                    
+                    if (Database.GetDbConnection().State != System.Data.ConnectionState.Open)
+                        Database.GetDbConnection().Open();
+                        
+                    var result = cmd.ExecuteScalar();
+                    hasEnvironmentColumn = Convert.ToInt32(result) > 0;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error checking if AllowedEnvironments column exists");
+                }
+                
+                // Add the column if it doesn't exist
+                if (!hasEnvironmentColumn)
+                {
+                    try
+                    {
+                        Database.ExecuteSqlRaw("ALTER TABLE Tokens ADD COLUMN AllowedEnvironments TEXT NOT NULL DEFAULT '*'");
+                        Log.Information("Added AllowedEnvironments column to Tokens table");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "Error adding AllowedEnvironments column");
+                    }
+                }
+                
                 return;
             }
             
@@ -43,14 +73,19 @@ public class AuthDbContext : DbContext
             try
             {
                 Database.ExecuteSqlRaw(@"
-                    CREATE TABLE Tokens (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                        Username TEXT NOT NULL DEFAULT 'legacy',
-                        TokenHash TEXT NOT NULL DEFAULT '', 
-                        TokenSalt TEXT NOT NULL DEFAULT '',
-                        CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        RevokedAt DATETIME NULL
-                    )");
+                CREATE TABLE Tokens (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                    Username TEXT NOT NULL DEFAULT 'legacy',
+                    TokenHash TEXT NOT NULL DEFAULT '', 
+                    TokenSalt TEXT NOT NULL DEFAULT '',
+                    CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    RevokedAt DATETIME NULL,
+                    ExpiresAt DATETIME NULL,
+                    AllowedScopes TEXT NOT NULL DEFAULT '*',
+                    AllowedEnvironments TEXT NOT NULL DEFAULT '*',
+                    Description TEXT NOT NULL DEFAULT ''
+                )");
+            
                 
                 Log.Debug("✅ Created new Tokens table");
             }
@@ -79,6 +114,8 @@ public class AuthDbContext : DbContext
             entity.Property(e => e.TokenSalt).IsRequired();
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("CURRENT_TIMESTAMP");
             entity.Property(e => e.RevokedAt).IsRequired(false);
+            entity.Property(e => e.AllowedScopes).HasDefaultValue("*");
+            entity.Property(e => e.AllowedEnvironments).HasDefaultValue("*"); // Add this line
         });
     }
 }

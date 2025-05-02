@@ -307,6 +307,12 @@ public class DynamicEndpointDocumentFilter : IDocumentFilter
     {
         // Add webhook endpoint with correct path pattern
         string path = "/api/{env}/webhook/{webhookId}";
+
+        var webhookEndpoints = EndpointHandler.GetSqlWebhookEndpoints();
+        if (webhookEndpoints == null || webhookEndpoints.Count == 0)
+        {
+            return; // Skip adding webhook endpoints to Swagger if none exist
+        }
         
         // Create path item if it doesn't exist
         if (!swaggerDoc.Paths.ContainsKey(path))

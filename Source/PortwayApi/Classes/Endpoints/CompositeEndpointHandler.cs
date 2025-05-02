@@ -49,7 +49,18 @@ public class CompositeEndpointHandler
                 Log.Warning("❌ Composite endpoint not found: {Endpoint}", endpointName);
                 return Results.NotFound(new { error = $"Composite endpoint '{endpointName}' not found" });
             }
-            
+
+            // Check if the environment is allowed for this endpoint
+            var endpointDefinitions = EndpointHandler.GetProxyEndpoints();
+            if (endpointDefinitions.TryGetValue(endpointName, out var endpointDefinition) && 
+                endpointDefinition.AllowedEnvironments != null && 
+                endpointDefinition.AllowedEnvironments.Count > 0 &&
+                !endpointDefinition.AllowedEnvironments.Contains(env, StringComparer.OrdinalIgnoreCase))
+            {
+                Log.Warning("❌ Environment '{Env}' is not allowed for endpoint '{Endpoint}'.", env, endpointName);
+                return Results.BadRequest(new { error = $"Environment '{env}' is not allowed for this endpoint." });
+            }
+
             // Parse request body
             JsonNode? requestData;
             try

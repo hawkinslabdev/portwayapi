@@ -36,19 +36,8 @@ A quick example to give you an idea of what this is all about:
 ### 1. Download the release
 Download the latest release from the releases section and extract it to your desired location.
 
-### 2. Create required folders
-These folders will be automatically created when the application runs, but most of them are already available in the set-up package.
-```bash
-mkdir log
-mkdir tokens
-mkdir environments
-mkdir endpoints/SQL
-mkdir endpoints/Proxy
-mkdir endpoints/Webhooks
-```
-
-### 3. Configure environments
-Add a settings file for each environment:
+### 2. Configure environments
+Configure the main settings file, as well as each settings file for each environment:
 
 **`environments/settings.json`**
 ```json
@@ -68,7 +57,7 @@ Add a settings file for each environment:
 }
 ```
 
-### 4. Configure endpoints
+### 3. Configure endpoints
 
 #### SQL Endpoint
 **`endpoints/SQL/Products/entity.json`**
@@ -142,7 +131,7 @@ Add a settings file for each environment:
 }
 ```
 
-### 5. Run the application
+### 4. Run the application
 
 Configure the application as a website in Internet Information Services. Note, if you're going to use the proxy make sure to change the application identity. Make sure to modify your application pool and website settings, for optimal uptime and security policies. E.g. for more information check [Security Headers by Probely](https://securityheaders.com/)
 
@@ -224,15 +213,14 @@ Content-Type: application/json
 ## 📅 Logging
 - Logs are stored in the `/log` folder and rotate daily.
 - Console output includes timestamps.
-- EF Core database commands are logged at `Warning` level to avoid verbosity.
 - Authentication events are logged for auditing purposes.
 
 ## 🔒 Security Model
 The authentication system implements industry best practices:
 - No plaintext tokens stored in the database
-- Cryptographically secure hashing with PBKDF2/SHA256
+- Cryptographically secure hashing
 - Username binding for token ownership and auditing
-- File-based token distribution for token distribution
+- File-based token creation for token distribution only
 
 ## 🔍 Monitoring
 Health check endpoints are available at:

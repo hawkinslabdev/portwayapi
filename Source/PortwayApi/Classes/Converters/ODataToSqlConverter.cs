@@ -1,12 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.RegularExpressions;
 using PortwayApi.Interfaces;
-using Microsoft.OData;
-using Microsoft.OData.Edm;
-using Microsoft.OData.UriParser;
-using SqlKata;
 using SqlKata.Compilers;
 using Serilog;
 
@@ -19,11 +11,16 @@ public class ODataToSqlConverter : IODataToSqlConverter
 {
     private readonly IEdmModelBuilder _edmModelBuilder;
     private readonly Compiler _sqlCompiler;
+    private readonly DynamicODataToSQL.ODataToSqlConverter _dynamicConverter;
     
     public ODataToSqlConverter(IEdmModelBuilder edmModelBuilder, Compiler sqlCompiler)
     {
         _edmModelBuilder = edmModelBuilder;
         _sqlCompiler = sqlCompiler;
+        
+        // Initialize the DynamicODataToSQL converter
+        var dynamicEdmModelBuilder = new DynamicODataToSQL.EdmModelBuilder();
+        _dynamicConverter = new DynamicODataToSQL.ODataToSqlConverter(dynamicEdmModelBuilder, sqlCompiler);
     }
     
     public (string SqlQuery, Dictionary<string, object> Parameters) ConvertToSQL(
@@ -32,169 +29,93 @@ public class ODataToSqlConverter : IODataToSqlConverter
     {
         Log.Debug("🔄 Converting OData to SQL for entity: {EntityName}", entityName);
         
-        // Build the EDM model for this entity
-        var model = _edmModelBuilder.GetEdmModel(entityName);
-        
-        // Get schema and table name
-        string schema = "dbo";
+        // Get the endpoint definition to retrieve schema and table info
+        var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
+        string schema = "dbo"; // Default schema
         string tableName = entityName;
         
-        var parts = entityName.Split('.');
-        if (parts.Length > 1)
+        // Check if we can get the actual schema from the endpoint definition
+        if (sqlEndpoints.TryGetValue(entityName, out var endpoint))
         {
-            schema = parts[0].Replace("[", "").Replace("]", "");
-            tableName = parts[1].Replace("[", "").Replace("]", "");
+            schema = endpoint.DatabaseSchema ?? "dbo";
+            tableName = endpoint.DatabaseObjectName ?? entityName;
+            Log.Debug("📊 Found endpoint definition: Schema={Schema}, Table={Table}", schema, tableName);
         }
         else
         {
-            tableName = tableName.Replace("[", "").Replace("]", "");
+            // Fallback to parsing from entityName if not found in endpoints
+            string CleanName(string name) => name.Replace("[", "").Replace("]", "");
+            
+            if (entityName.Contains("."))
+            {
+                var parts = entityName.Split('.');
+                schema = CleanName(parts[0]);
+                tableName = CleanName(parts[1]);
+            }
+            else
+            {
+                tableName = CleanName(entityName);
+            }
+            Log.Debug("⚠️ No endpoint definition found, using parsed values: Schema={Schema}, Table={Table}", schema, tableName);
         }
         
-        // Start building the SQL Kata query
-        var query = new Query($"{schema}.{tableName}");
-        
-        // Dictionary to hold parameters for parameterized queries
-        var parameters = new Dictionary<string, object>();
-        
-        // Track parameter count to ensure unique names
-        int parameterCount = 0;
+        // Let the library handle the bracketing - just provide clean schema.table format
+        string fullTableName = $"{schema}.{tableName}";
         
         try
         {
-            // Apply $select
+            // Log the OData parameters for debugging
             if (odataParams.TryGetValue("select", out var select) && !string.IsNullOrWhiteSpace(select))
             {
-                var columns = select.Split(',').Select(c => c.Trim()).ToArray();
-                query.Select(columns);
-                Log.Debug("🔍 Applied $select: {Columns}", string.Join(", ", columns));
+                Log.Debug("🔍 Applied $select: {Columns}", select);
             }
             
-            // Apply $filter
             if (odataParams.TryGetValue("filter", out var filter) && !string.IsNullOrWhiteSpace(filter))
             {
-                ApplyFilter(query, filter, ref parameterCount, parameters);
                 Log.Debug("🔍 Applied $filter: {Filter}", filter);
             }
             
-            // Apply $orderby
             if (odataParams.TryGetValue("orderby", out var orderby) && !string.IsNullOrWhiteSpace(orderby))
             {
-                ApplyOrderBy(query, orderby);
                 Log.Debug("🔍 Applied $orderby: {OrderBy}", orderby);
             }
             
-            // Apply $top and $skip
             if (odataParams.TryGetValue("top", out var topStr) && int.TryParse(topStr, out var top))
             {
-                query.Limit(top);
                 Log.Debug("🔍 Applied $top: {Top}", top);
             }
             
             if (odataParams.TryGetValue("skip", out var skipStr) && int.TryParse(skipStr, out var skip))
             {
-                query.Offset(skip);
                 Log.Debug("🔍 Applied $skip: {Skip}", skip);
             }
             
-            // Compile the query to SQL
-            var compiled = _sqlCompiler.Compile(query);
+            // Use DynamicODataToSQL to convert the query
+            var (sqlQuery, rawParams) = _dynamicConverter.ConvertToSQL(
+                fullTableName,
+                odataParams,
+                false, // count parameter
+                true   // tryToParseDate - enable date parsing
+            );
+            
+            // Ensure parameters are a Dictionary (not just IDictionary)
+            var parameters = new Dictionary<string, object>(rawParams ?? new Dictionary<string, object>());
             
             Log.Debug("✅ Successfully converted OData to SQL");
-            Log.Debug("SQL Query: {SqlQuery}", compiled.Sql);
-            Log.Debug("Parameters: {Parameters}", string.Join(", ", compiled.NamedBindings.Select(p => $"{p.Key}={p.Value}")));
+            Log.Debug("SQL Query: {SqlQuery}", sqlQuery);
             
-            // Transfer the bindings from SqlKata to our parameters dictionary
-            foreach (var binding in compiled.NamedBindings)
+            if (parameters.Any())
             {
-                parameters[binding.Key] = binding.Value;
+                Log.Debug("Parameters: {Parameters}", 
+                    string.Join(", ", parameters.Select(p => $"{p.Key}={p.Value}")));
             }
             
-            return (compiled.Sql, parameters);
+            return (sqlQuery, parameters);
         }
         catch (Exception ex)
         {
             Log.Error(ex, "❌ Error converting OData to SQL: {Message}", ex.Message);
             throw new InvalidOperationException($"Failed to convert OData to SQL: {ex.Message}", ex);
-        }
-    }
-    
-    private void ApplyFilter(Query query, string filter, ref int parameterCount, Dictionary<string, object> parameters)
-    {
-        // Basic filter parsing - this is a simplified version
-        // In a production implementation, you would use a proper OData filter parser
-        
-        // Handle some common OData filter expressions
-        
-        // equality: Field eq 'value'
-        var eqMatch = Regex.Match(filter, @"(\w+)\s+eq\s+'([^']*)'");
-        if (eqMatch.Success)
-        {
-            var field = eqMatch.Groups[1].Value;
-            var value = eqMatch.Groups[2].ToString();
-            var paramName = $"p{parameterCount++}";
-            
-            query.Where(field, "=", value);
-            parameters[paramName] = value;
-            return;
-        }
-        
-        // contains: contains(Field, 'value')
-        var containsMatch = Regex.Match(filter, @"contains\((\w+),\s*'([^']*)'\)");
-        if (containsMatch.Success)
-        {
-            var field = containsMatch.Groups[1].Value;
-            var value = containsMatch.Groups[2].Value;
-            var paramName = $"p{parameterCount++}";
-            
-            query.WhereRaw($"{field} LIKE '%' + @{paramName} + '%'");
-            parameters[paramName] = value;
-            return;
-        }
-        
-        // greater than: Field gt value
-        var gtMatch = Regex.Match(filter, @"(\w+)\s+gt\s+(\d+)");
-        if (gtMatch.Success)
-        {
-            var field = gtMatch.Groups[1].Value;
-            var valueStr = gtMatch.Groups[2].Value;
-            var paramName = $"p{parameterCount++}";
-            
-            if (int.TryParse(valueStr, out var intValue))
-            {
-                query.Where(field, ">", intValue);
-                parameters[paramName] = intValue;
-                return;
-            }
-        }
-        
-        // If not a recognized pattern, try a raw where clause with warning
-        Log.Warning("⚠️ Using unsupported or complex filter expression as raw SQL: {Filter}", filter);
-        query.WhereRaw(filter);
-    }
-    
-    private void ApplyOrderBy(Query query, string orderby)
-    {
-        var orderParts = orderby.Split(',');
-        
-        foreach (var part in orderParts)
-        {
-            var trimmedPart = part.Trim();
-            var descending = trimmedPart.EndsWith(" desc", StringComparison.OrdinalIgnoreCase);
-            
-            var fieldName = descending
-                ? trimmedPart.Substring(0, trimmedPart.Length - 5).Trim()
-                : trimmedPart.EndsWith(" asc", StringComparison.OrdinalIgnoreCase)
-                    ? trimmedPart.Substring(0, trimmedPart.Length - 4).Trim()
-                    : trimmedPart;
-            
-            if (descending)
-            {
-                query.OrderByDesc(fieldName);
-            }
-            else
-            {
-                query.OrderBy(fieldName);
-            }
         }
     }
 }

@@ -307,6 +307,6 @@ Check logs for environment loading information:
 ## Next Steps
 
 - Learn how to use the [Token Generator](./security#managing-tokens) for environment access control
-- [Configure SQL Endpoints](./sql-endpoints) to use your environments
-- [Set up Proxy Endpoints](./proxy-endpoints) with environment-specific routing
+- [Configure SQL Endpoints](./endpoints-sql) to use your environments
+- [Set up Proxy Endpoints](./endpoints-proxy) with environment-specific routing
 - [Deploy to Production](./deployment) with proper environment isolation

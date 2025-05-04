@@ -170,9 +170,9 @@ Authorization: Bearer YOUR_ACCESS_TOKEN
 
 Now that Portway is running in IIS:
 
-- [Configure SQL Endpoints](./sql-endpoints) for database access
-- [Set up Proxy Endpoints](./proxy-endpoints) for service forwarding
-- [Create Composite Endpoints](./composite-endpoints) for multi-step operations
+- [Configure SQL Endpoints](./endpoints-sql) for database access
+- [Set up Proxy Endpoints](./endpoints-proxy) for service forwarding
+- [Create Composite Endpoints](./endpoints-composite) for multi-step operations
 - [Configure Security](./security) for production deployment
 - [Set up Monitoring](./monitoring) with health checks
 

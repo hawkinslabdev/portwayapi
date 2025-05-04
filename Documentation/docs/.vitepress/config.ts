@@ -67,6 +67,9 @@ export default withMermaid(
         },
         {
            text: 'Coding & API Reference', link: '/reference/' 
+        },
+        {
+          text: 'Plugins', link: '/reference/plugins/' 
         }
       ],
       '/reference/': [
@@ -99,7 +102,14 @@ export default withMermaid(
           items: [
             { text: 'Token Generator', link: '/reference/token-generator' },
             { text: 'Health Checks', link: '/reference/health-checks' },
-            { text: 'Logging', link: '/reference/logging' }
+            { text: 'Logging', link: '/reference/logging' },
+            { text: 'Audit', link: '/reference/audit' }
+          ]
+        },
+        {
+          text: 'Plugins',
+          items: [
+            { text: 'Exact Globe+', link: '/reference/plugins/exact-globe' }
           ]
         }
       ]
@@ -112,7 +122,7 @@ export default withMermaid(
     },
     footer: {
       message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2025-present u/hawkinslabdev'
+      copyright: 'Copyright © 2025-present Hawkin Lab Industries'
     }
   },
   vite: {

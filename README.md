@@ -245,7 +245,7 @@ GET /health/details
 ## ✨ Credits
 Built with ❤️ using:
 - [ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/)
-- [DynamicODataToSQL](https://github.com/your-org/dynamicodata-to-sql)
+- [DynamicODataToSQL](https://github.com/DynamicODataToSQL/DynamicODataToSQL)
 - [Serilog](https://serilog.net/)
 - [SQLite](https://www.sqlite.org/index.html)
 

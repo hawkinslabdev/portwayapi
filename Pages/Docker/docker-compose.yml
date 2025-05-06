@@ -8,5 +8,5 @@ services:
     ports:
       - "8180:80"
     environment:
-      - REPO_URL=https://github.com/hawkinslabdev/portwayapi.git
+      - REPO_URL=https://github.com/melosso/portway.git
       - REPO_BRANCH=main

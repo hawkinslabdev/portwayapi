@@ -1,14 +1,14 @@
-# <img src="https://github.com/hawkinslabdev/portwayapi/blob/main/Source/logo.webp?raw=true" alt="" width="34" style="vertical-align: middle;">  Portway
+# <img src="https://github.com/melosso/portway/blob/main/Source/logo.webp?raw=true" alt="" width="34" style="vertical-align: middle;">  Portway
 
 A powerful, lightweight API gateway built for Windows Server. You can use it for granular safe SQL Server data access, and/or service proxying with environment awareness.
 
-* 🌐 [Visit the landing page](https://portway.schwalb.nl/)
-* 🚀 [Launch the demo site](https://portway-demo.schwalb.nl/)
-* ⬇️ [Download the latest release](https://github.com/hawkinslabdev/portwayapi/releases/)
+* 🌐 [Visit the landing page](https://portway.melosso.nl/)
+* 🚀 [Launch the demo site](https://portway-demo.melosso.nl/)
+* ⬇️ [Download the latest release](https://github.com/melosso/portway/releases/)
 
 A quick example to give you an idea of what this is all about:
 
-![Screenshot of Swagger UI](https://github.com/hawkinslabdev/portwayapi/blob/main/Source/example.png?raw=true)
+![Screenshot of Swagger UI](https://github.com/melosso/portway/blob/main/Source/example.png?raw=true)
 
 ## 🚀 Features
 - **Multiple Endpoint Types**

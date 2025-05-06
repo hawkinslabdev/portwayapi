@@ -2,8 +2,8 @@
 
 A powerful, lightweight API gateway built for Windows Server. You can use it for granular safe SQL Server data access, and/or service proxying with environment awareness.
 
-* 🌐 [Visit the landing page](https://portway.melosso.nl/)
-* 🚀 [Launch the demo site](https://portway-demo.melosso.nl/)
+* 🌐 [Visit the landing page](https://portway.melosso.com/)
+* 🚀 [Launch the demo site](https://portway-demo.melosso.com/)
 * ⬇️ [Download the latest release](https://github.com/melosso/portway/releases/)
 
 A quick example to give you an idea of what this is all about:

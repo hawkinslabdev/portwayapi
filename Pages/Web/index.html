@@ -16,12 +16,12 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-		.disable-select {
-		  -webkit-user-select: none;  
-		  -moz-user-select: none;    
-		  -ms-user-select: none;      
-		  user-select: none;
-		}
+        .disable-select {
+            -webkit-user-select: none;  
+            -moz-user-select: none;    
+            -ms-user-select: none;      
+            user-select: none;
+        }
     </style>
 </head>
 <body class="bg-white text-gray-900 min-h-screen flex items-center justify-center p-4">
@@ -29,8 +29,7 @@
         <header class="text-center disable-select">
             <div class="flex items-center justify-center mb-4">
                 <h1 class="text-5xl font-bold gradient-text pb-1">Portway</h1>
-				<img src="assets/img/logo.svg" alt="Portway Logo" class="h-[40px] ml-6 object-cover">
-
+                <img src="assets/img/logo.svg" alt="Portway Logo" class="h-[40px] ml-6 object-cover">
             </div>
             <p class="text-xl text-gray-600 max-w-2xl mx-auto">
                 A friendly API gateway that simplifies your data integration.
@@ -38,33 +37,40 @@
         </header>
 
         <div class="grid md:grid-cols-2 gap-8">
-			<div class="space-y-6">
-				<h2 class="text-3xl font-semibold text-gray-800">Quick overview</h2>
-				<p class="text-gray-700 text-lg">
-					Portway is an open-source, community-driven API gateway designed to simplify integration with internal services like or your custom database solutions. Built for Windows.
-				</p>
-				<div>
-					<a href="https://portway-docs.melosso.com/" class="inline-flex bg-gray-100 text-gray-800 px-6 py-3.5 rounded-lg hover:bg-gray-200 transition items-center justify-center">
-						<svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-							<path d="M12 20h9" />
-							<path d="M12 4h9" />
-							<path d="M4 9h16" />
-							<path d="M4 15h16" />
-						</svg>
-						Read Documentation
-					</a>
-				</div>
-			</div>
+            <div class="space-y-6">
+                <h2 class="text-3xl font-semibold text-gray-800">Quick overview</h2>
+                <p class="text-gray-700 text-lg">
+                    Portway is an open-source, community-driven API gateway designed to simplify integration with internal services like or your custom database solutions. Built for Windows.
+                </p>
+                <div class="flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
+                    <a href="https://portway-docs.melosso.com/" class="w-auto bg-gray-100 text-gray-800 px-6 py-3.5 rounded-lg hover:bg-gray-200 transition flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M12 20h9" />
+                            <path d="M12 4h9" />
+                            <path d="M4 9h16" />
+                            <path d="M4 15h16" />
+                        </svg>
+                        Read Documentation
+                    </a>
+                
+                    <a href="https://melosso.com/licensing/portway" class="w-auto bg-blue-600 text-white px-6 py-3.5 rounded-lg hover:opacity-90 transition flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-3" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M21 5H3c-1.1 0-1.99.9-1.99 2L1 17c0 1.1.9 2 1.99 2h18c1.1 0 1.99-.9 1.99-2L23 7c0-1.1-.9-2-1.99-2zM3 17V7h18v10H3z"/>
+                        </svg>
+                        View License
+                    </a>
+                </div>
+            </div>
 
             <div class="space-y-6">
                 <h2 class="text-3xl font-semibold text-gray-800">Get started</h2>
                 <div class="flex flex-col space-y-4">
-					<a href="https://portway-demo.melosso.com/" target="_blank" class="w-full bg-white border border-gray-300 text-gray-800 px-6 py-3.5 rounded-lg hover:bg-gray-100 transition flex items-center justify-center">
-						<svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-							<path d="M15 10l4.553 2.276A1 1 0 0120 13.118V18a2 2 0 01-2 2H6a2 2 0 01-2-2v-4.882a1 1 0 01.447-.842L9 10m3-7v11" />
-						</svg>
-						Launch Preview
-					</a>
+                    <a href="https://portway-demo.melosso.com/" target="_blank" class="w-full bg-white border border-gray-300 text-gray-800 px-6 py-3.5 rounded-lg hover:bg-gray-100 transition flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path d="M15 10l4.553 2.276A1 1 0 0120 13.118V18a2 2 0 01-2 2H6a2 2 0 01-2-2v-4.882a1 1 0 01.447-.842L9 10m3-7v11" />
+                        </svg>
+                        Launch Preview
+                    </a>
 
                     <a href="https://github.com/melosso/portway" class="w-full bg-gradient-to-r from-purple-600 to-blue-500 text-white px-6 py-3.5 rounded-lg hover:opacity-90 transition flex items-center justify-center">
                         <svg class="w-5 h-5 mr-3" fill="currentColor" viewBox="0 0 24 24">

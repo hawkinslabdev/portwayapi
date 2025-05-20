@@ -1,14 +1,21 @@
-# Remove the existing deployment folder (except auth.db which we backed up)
-if (Test-Path "C:\Github\portwayapi\Deployment\PortwayApi") {
-    # Use robocopy to delete the directory with a purge option
-    Write-Host "🗑️ Removing existing deployment folder..."
-    Get-ChildItem -Path "C:\Github\portwayapi\Deployment\PortwayApi" -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+# Define the deployment path
+$deploymentPath = "C:\Github\portway\Deployment\PortwayApi"
+
+# Check if the deployment folder exists, create it if not
+if (-not (Test-Path -Path $deploymentPath)) {
+    Write-Host "Creating deployment folder at $deploymentPath..."
+    New-Item -Path $deploymentPath -ItemType Directory -Force | Out-Null
+} 
+else {
+    # If it exists, remove its contents
+    Write-Host "Removing existing deployment folder contents..."
+    Get-ChildItem -Path $deploymentPath -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1 # Give the system a moment
-    Remove-Item -Path "C:\Github\portwayapi\Deployment\PortwayApi" -Force -ErrorAction SilentlyContinue
 }
 
 # Publish the application
-dotnet publish C:\Github\portwayapi\Source\PortwayApi -c Release -o C:\Github\portwayapi\Deployment\PortwayApi
+Write-Host "Publishing application..."
+dotnet publish C:\Github\portway\Source\PortwayApi -c Release -o $deploymentPath
 
 # Clean up unnecessary development files
 Write-Host "Removing development files..."
@@ -21,18 +28,19 @@ $filesToRemove = @(
 )
 
 foreach ($pattern in $filesToRemove) {
-    Get-ChildItem -Path "C:\Github\portwayapi\Deployment\PortwayApi" -Filter $pattern -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path $deploymentPath -Filter $pattern -Recurse -ErrorAction SilentlyContinue | 
+    Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 # Remove all localized folders with SqlClient resources, except for 'en' and 'nl'
-Get-ChildItem -Path "C:\Github\portwayapi\Deployment\PortwayApi" -Directory |
+Get-ChildItem -Path $deploymentPath -Directory -ErrorAction SilentlyContinue |
 Where-Object {
     ($_.Name -ne "en" -and $_.Name -ne "nl") -and
-    (Test-Path "$($_.FullName)\Microsoft.Data.SqlClient.resources.dll")
-} | Remove-Item -Recurse -Force
+    (Test-Path "$($_.FullName)\Microsoft.Data.SqlClient.resources.dll" -ErrorAction SilentlyContinue)
+} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 # Generate web.config
-$webConfigContent = @"
+$webConfigContent = @'
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <location path="." inheritInChildApplications="false">
@@ -70,14 +78,14 @@ $webConfigContent = @"
     </httpProtocol>
   </system.webServer>
 </configuration>
-"@
+'@
 
-# Write the web.config file to the deployment directory
-$webConfigPath = "C:\Github\portwayapi\Deployment\PortwayApi\web.config"
-$webConfigContent | Out-File -FilePath $webConfigPath -Encoding UTF8
+# Create parent directories if they don't exist and write the web.config file
+$webConfigPath = "$deploymentPath\web.config"
+$webConfigContent | Out-File -FilePath $webConfigPath -Encoding UTF8 -Force
 
 # Ensure .gitignore exists
-$gitignorePath = "C:\Github\portwayapi\.gitignore"
+$gitignorePath = "C:\Github\portway\.gitignore"
 $logIgnoreRules = @(
     "`n# Ignore log files",
     "*.log",
@@ -94,7 +102,5 @@ foreach ($rule in $logIgnoreRules) {
 }
 
 Write-Host ".gitignore updated to exclude log files and /logs/ directory"
-
-
-Write-Host "✅ Deployment complete. The application has been published to C:\Github\portwayapi\Deployment\PortwayApi"
-Write-Host "📄 web.config file generated at $webConfigPath"
+Write-Host "Deployment complete. The application has been published to $deploymentPath"
+Write-Host "web.config file generated at $webConfigPath"

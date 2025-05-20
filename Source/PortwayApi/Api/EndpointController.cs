@@ -569,6 +569,20 @@ public class EndpointController : ControllerBase
                 return StatusCode(403);
             }
 
+            // Detect if this is likely a SOAP request
+            bool isSoapRequest = Request.ContentType?.Contains("text/xml") == true || 
+                                Request.ContentType?.Contains("application/soap+xml") == true ||
+                                fullUrl.Contains(".svc") || 
+                                Request.Headers.ContainsKey("SOAPAction");
+
+            if (isSoapRequest)
+            {
+                Log.Information("🧼 Detected SOAP request for endpoint: {Endpoint}", endpointName);
+                // SOAP requests generally shouldn't be cached, so bypass cache and execute directly
+                await ExecuteProxyRequest(method, fullUrl, env, endpointConfig, endpointName, isSoapRequest: true);
+                return new EmptyResult(); // Response already written
+            }
+
             // For GET requests, try to use cache
             if (method.Equals("GET", StringComparison.OrdinalIgnoreCase))
             {
@@ -736,7 +750,8 @@ public class EndpointController : ControllerBase
     private async Task<(bool IsSuccessful, string Content, Dictionary<string, string> Headers, int StatusCode)> ExecuteProxyRequest(
         string method, string fullUrl, string env, 
         (string Url, HashSet<string> Methods, bool IsPrivate, string Type) endpointConfig,
-        string endpointName)
+        string endpointName,
+        bool isSoapRequest = false)
     {
         // Create HttpClient
         var client = _httpClientFactory.CreateClient("ProxyClient");
@@ -787,6 +802,19 @@ public class EndpointController : ControllerBase
             {
                 if (header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
                     continue; // Already handled for request content
+
+                // Special handling for SOAP requests
+                if (isSoapRequest && header.Key.Equals("SOAPAction", StringComparison.OrdinalIgnoreCase))
+                {
+                    // SOAPAction needs special handling - it must be enclosed in quotes for SOAP 1.1
+                    string soapAction = header.Value.ToString();
+                    if (!soapAction.StartsWith("\"") && !soapAction.EndsWith("\""))
+                    {
+                        soapAction = $"\"{soapAction}\"";
+                    }
+                    requestMessage.Headers.TryAddWithoutValidation("SOAPAction", soapAction);
+                    continue;
+                }
 
                 requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
             }
@@ -842,8 +870,8 @@ public class EndpointController : ControllerBase
             }
         }
         
-        // For GET requests, ensure Cache-Control header is set
-        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase) && !responseHeaders.ContainsKey("Cache-Control"))
+        // For GET requests, ensure Cache-Control header is set (except for SOAP)
+        if (method.Equals("GET", StringComparison.OrdinalIgnoreCase) && !isSoapRequest && !responseHeaders.ContainsKey("Cache-Control"))
         {
             // Add a default cache control header
             Response.Headers["Cache-Control"] = "public, max-age=300"; // 5 minutes
@@ -858,29 +886,48 @@ public class EndpointController : ControllerBase
             ? await response.Content.ReadAsStringAsync()
             : string.Empty;
 
-        // URL rewriting with your existing code
-        if (!Uri.TryCreate(endpointConfig.Url, UriKind.Absolute, out var originalUri))
+        // For SOAP responses, skip URL rewriting
+        string rewrittenContent;
+        if (isSoapRequest)
         {
-            Log.Warning("❌ Could not parse endpoint URL as URI: {Url}", endpointConfig.Url);
-            Response.StatusCode = 500;
-            await Response.WriteAsync("Error processing request");
-            return (false, string.Empty, responseHeaders, 500);
+            rewrittenContent = originalContent;
+            
+            // Ensure content type is correctly set for XML responses
+            if (!Response.Headers.ContainsKey("Content-Type"))
+            {
+                if (originalContent.Contains("<soap:Envelope") || originalContent.Contains("<SOAP-ENV:Envelope"))
+                {
+                    Response.Headers["Content-Type"] = "text/xml; charset=utf-8";
+                    responseHeaders["Content-Type"] = "text/xml; charset=utf-8";
+                }
+            }
         }
+        else
+        {
+            // URL rewriting with your existing code
+            if (!Uri.TryCreate(endpointConfig.Url, UriKind.Absolute, out var originalUri))
+            {
+                Log.Warning("❌ Could not parse endpoint URL as URI: {Url}", endpointConfig.Url);
+                Response.StatusCode = 500;
+                await Response.WriteAsync("Error processing request");
+                return (false, string.Empty, responseHeaders, 500);
+            }
 
-        var originalHost = $"{originalUri.Scheme}://{originalUri.Host}:{originalUri.Port}";
-        var originalPath = originalUri.AbsolutePath.TrimEnd('/');
+            var originalHost = $"{originalUri.Scheme}://{originalUri.Host}:{originalUri.Port}";
+            var originalPath = originalUri.AbsolutePath.TrimEnd('/');
 
-        // Proxy path = /api/{env}/{endpoint}
-        var proxyHost = $"{Request.Scheme}://{Request.Host}";
-        var proxyPath = $"/api/{env}/{endpointName}";
+            // Proxy path = /api/{env}/{endpoint}
+            var proxyHost = $"{Request.Scheme}://{Request.Host}";
+            var proxyPath = $"/api/{env}/{endpointName}";
 
-        // Apply URL rewriting
-        var rewrittenContent = UrlRewriter.RewriteUrl(
-            originalContent, 
-            originalHost, 
-            originalPath, 
-            proxyHost, 
-            proxyPath);
+            // Apply URL rewriting
+            rewrittenContent = UrlRewriter.RewriteUrl(
+                originalContent, 
+                originalHost, 
+                originalPath, 
+                proxyHost, 
+                proxyPath);
+        }
 
         // Write the content to the response
         await Response.WriteAsync(rewrittenContent);

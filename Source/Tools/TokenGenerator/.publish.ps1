@@ -1,5 +1,5 @@
 # Set the correct paths for your environment
-$repoBase = "C:\Github\PortwayApi"
+$repoBase = "C:\Github\portway"
 $toolsDir = "$repoBase\Source\Tools\TokenGenerator"
 $deploymentDir = "$repoBase\Deployment\PortwayApi\tools\TokenGenerator"
 

@@ -53,29 +53,65 @@ public enum EndpointType
     /// Standard endpoint (fallback)
     /// </summary>
     Standard,
-    
+
     /// <summary>
     /// SQL database endpoint
     /// </summary>
     SQL,
-    
+
     /// <summary>
     /// Proxy endpoint to forward requests to another service
     /// </summary>
     Proxy,
-    
+
     /// <summary>
     /// Composite endpoint that combines multiple operations
     /// </summary>
     Composite,
-    
+
     /// <summary>
     /// Webhook endpoint for receiving external events
     /// </summary>
     Webhook,
-    
+
+    /// <summary>
+    /// Files endpoint for file storage and retrieval
+    /// </summary>
+    Files,
+
     /// <summary>
     /// Private endpoint (not publicly accessible)
     /// </summary>
     Private
+}
+
+/// <summary>
+/// Represents a File endpoint entity for local file handling
+/// </summary>
+public class FileEndpointEntity
+{
+    /// <summary>
+    /// Type of storage (Local, S3, etc.)
+    /// </summary>
+    public string StorageType { get; set; } = "Local";
+    
+    /// <summary>
+    /// Base directory for this endpoint (relative to the root storage directory)
+    /// </summary>
+    public string? BaseDirectory { get; set; }
+    
+    /// <summary>
+    /// List of allowed file extensions
+    /// </summary>
+    public List<string>? AllowedExtensions { get; set; }
+    
+    /// <summary>
+    /// Whether this endpoint is private (not accessible via API)
+    /// </summary>
+    public bool IsPrivate { get; set; } = false;
+    
+    /// <summary>
+    /// List of environments allowed to access this endpoint
+    /// </summary>
+    public List<string>? AllowedEnvironments { get; set; }
 }

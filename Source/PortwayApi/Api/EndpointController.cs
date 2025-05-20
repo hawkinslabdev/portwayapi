@@ -31,6 +31,7 @@ public class EndpointController : ControllerBase
     private readonly IODataToSqlConverter _oDataToSqlConverter;
     private readonly IEnvironmentSettingsProvider _environmentSettingsProvider;
     private readonly CompositeEndpointHandler _compositeHandler;
+    private readonly FileHandlerService _fileHandlerService;
     private readonly SqlConnectionPoolService _connectionPoolService; 
     private readonly Services.Caching.CacheManager _cacheManager; 
 
@@ -105,7 +106,8 @@ public class EndpointController : ControllerBase
         IEnvironmentSettingsProvider environmentSettingsProvider,
         CompositeEndpointHandler compositeHandler,
         SqlConnectionPoolService connectionPoolService,
-        Services.Caching.CacheManager cacheManager)
+        Services.Caching.CacheManager cacheManager,
+        FileHandlerService fileHandlerService)
     {
         _httpClientFactory = httpClientFactory;
         _urlValidator = urlValidator;
@@ -115,6 +117,7 @@ public class EndpointController : ControllerBase
         _compositeHandler = compositeHandler;
         _connectionPoolService = connectionPoolService;
         _cacheManager = cacheManager;
+        _fileHandlerService = fileHandlerService;
     }
 
     /// <summary>
@@ -418,6 +421,321 @@ public class EndpointController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Handle file uploads
+    /// </summary>
+    [HttpPost("{env}/files/{**catchall}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> UploadFileAsync(
+        string env,
+        string catchall,
+        [FromForm] IFormFile file,
+        [FromQuery] bool overwrite = false)
+    {
+        try
+        {
+            // Extract the endpoint name from the catchall
+            string endpointName;
+            string? subpath = null;
+            
+            var segments = catchall.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0)
+            {
+                return BadRequest(new { error = "Missing endpoint name in the URL path" });
+            }
+            
+            endpointName = segments[0];
+            
+            if (segments.Length > 1)
+            {
+                subpath = string.Join('/', segments.Skip(1));
+            }
+            
+            // Check if this endpoint exists
+            var fileEndpoints = EndpointHandler.GetFileEndpoints();
+            if (!fileEndpoints.TryGetValue(endpointName, out var endpoint))
+            {
+                return NotFound(new { error = $"File endpoint '{endpointName}' not found" });
+            }
+            
+            // Check environment restrictions
+            var (isAllowed, errorResponse) = ValidateEnvironmentRestrictions(env, endpointName, EndpointType.Files);
+            if (!isAllowed)
+            {
+                return errorResponse!;
+            }
+            
+            // Validate file
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { error = "No file was uploaded" });
+            }
+            
+            // Get storage options from endpoint definition
+            var baseDirectory = endpoint.Properties.TryGetValue("BaseDirectory", out var baseDirObj) 
+                ? baseDirObj.ToString() 
+                : "";
+                
+            var allowedExtensions = endpoint.Properties.TryGetValue("AllowedExtensions", out var extensionsObj) 
+                && extensionsObj is List<string> extensions
+                ? extensions
+                : new List<string>();
+            
+            // Construct the target filename
+            string filename = file.FileName;
+            
+            // Add subpath if provided
+            if (!string.IsNullOrEmpty(subpath))
+            {
+                filename = Path.Combine(subpath, filename);
+            }
+            
+            // Add base directory if configured
+            if (!string.IsNullOrEmpty(baseDirectory))
+            {
+                filename = Path.Combine(baseDirectory, filename);
+            }
+            
+            // Normalize path separators
+            filename = filename.Replace('\\', '/');
+            
+            // Validate file extension
+            string extension = Path.GetExtension(filename).ToLowerInvariant();
+            if (allowedExtensions.Count > 0 && !allowedExtensions.Contains(extension))
+            {
+                return BadRequest(new { 
+                    error = $"Files with extension {extension} are not allowed for this endpoint",
+                    allowedExtensions = allowedExtensions
+                });
+            }
+            
+            // Upload the file
+            using var stream = file.OpenReadStream();
+            string fileId = await _fileHandlerService.UploadFileAsync(env, filename, stream, overwrite);
+            
+            // Return success with file info
+            return Ok(new { 
+                success = true, 
+                fileId = fileId, 
+                filename = filename,
+                contentType = file.ContentType,
+                size = file.Length,
+                url = $"/api/{env}/files/{endpointName}/{fileId}" 
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            // File validation errors
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            // File already exists errors
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error uploading file for {Path}", Request.Path);
+            return StatusCode(500, new { error = "An error occurred while uploading the file" });
+        }
+    }
+
+    /// <summary>
+    /// Handle file downloads
+    /// </summary>
+    [HttpGet("{env}/files/{**catchall}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DownloadFileAsync(
+        string env,
+        string catchall)
+    {
+        try
+        {
+            // Extract the endpoint name and file ID from the catchall
+            var segments = catchall.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length < 2)
+            {
+                return BadRequest(new { error = "Missing endpoint name or file ID in the URL path" });
+            }
+            
+            string endpointName = segments[0];
+            string fileId = segments[1];
+            
+            // Check if this endpoint exists
+            var fileEndpoints = EndpointHandler.GetFileEndpoints();
+            if (!fileEndpoints.TryGetValue(endpointName, out var endpoint))
+            {
+                return NotFound(new { error = $"File endpoint '{endpointName}' not found" });
+            }
+            
+            // Check environment restrictions
+            var (isAllowed, errorResponse) = ValidateEnvironmentRestrictions(env, endpointName, EndpointType.Files);
+            if (!isAllowed)
+            {
+                return errorResponse!;
+            }
+            
+            // Download the file
+            var (fileStream, filename, contentType) = await _fileHandlerService.DownloadFileAsync(fileId);
+            
+            // Return the file
+            return File(fileStream, contentType, filename);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return NotFound(new { error = $"File not found: {ex.FileName}" });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error downloading file for {Path}", Request.Path);
+            return StatusCode(500, new { error = "An error occurred while downloading the file" });
+        }
+    }
+
+    /// <summary>
+    /// Handle file deletions
+    /// </summary>
+    [HttpDelete("{env}/files/{**catchall}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> DeleteFileAsync(
+        string env,
+        string catchall)
+    {
+        try
+        {
+            // Extract the endpoint name and file ID from the catchall
+            var segments = catchall.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length < 2)
+            {
+                return BadRequest(new { error = "Missing endpoint name or file ID in the URL path" });
+            }
+            
+            string endpointName = segments[0];
+            string fileId = segments[1];
+            
+            // Check if this endpoint exists
+            var fileEndpoints = EndpointHandler.GetFileEndpoints();
+            if (!fileEndpoints.TryGetValue(endpointName, out var endpoint))
+            {
+                return NotFound(new { error = $"File endpoint '{endpointName}' not found" });
+            }
+            
+            // Check environment restrictions
+            var (isAllowed, errorResponse) = ValidateEnvironmentRestrictions(env, endpointName, EndpointType.Files);
+            if (!isAllowed)
+            {
+                return errorResponse!;
+            }
+            
+            // Delete the file
+            await _fileHandlerService.DeleteFileAsync(fileId);
+            
+            // Return success
+            return Ok(new { 
+                success = true, 
+                message = "File deleted successfully" 
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error deleting file for {Path}", Request.Path);
+            return StatusCode(500, new { error = "An error occurred while deleting the file" });
+        }
+    }
+
+    /// <summary>
+    /// List files in an endpoint
+    /// </summary>
+    [HttpGet("{env}/files/{endpointName}/list")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> ListFilesAsync(
+        string env,
+        string endpointName,
+        [FromQuery] string? prefix = null)
+    {
+        try
+        {
+            // Check if this endpoint exists
+            var fileEndpoints = EndpointHandler.GetFileEndpoints();
+            if (!fileEndpoints.TryGetValue(endpointName, out var endpoint))
+            {
+                return NotFound(new { error = $"File endpoint '{endpointName}' not found" });
+            }
+            
+            // Check environment restrictions
+            var (isAllowed, errorResponse) = ValidateEnvironmentRestrictions(env, endpointName, EndpointType.Files);
+            if (!isAllowed)
+            {
+                return errorResponse!;
+            }
+            
+            // Get base directory for this endpoint
+            var baseDirectory = endpoint.Properties.TryGetValue("BaseDirectory", out var baseDirObj) 
+                ? baseDirObj.ToString() 
+                : "";
+                
+            // Prepare the prefix by combining base directory and provided prefix
+            if (!string.IsNullOrEmpty(baseDirectory))
+            {
+                if (string.IsNullOrEmpty(prefix))
+                {
+                    prefix = baseDirectory;
+                }
+                else
+                {
+                    prefix = Path.Combine(baseDirectory, prefix).Replace('\\', '/');
+                }
+            }
+            
+            // List the files
+            var files = await _fileHandlerService.ListFilesAsync(env, prefix);
+            
+            // Add download URLs
+            var filesWithUrls = files.Select(f => new
+            {
+                fileId = f.FileId,
+                fileName = f.FileName,
+                contentType = f.ContentType,
+                size = f.Size,
+                lastModified = f.LastModified,
+                url = $"/api/{env}/files/{endpointName}/{f.FileId}",
+                isInMemoryOnly = f.IsInMemoryOnly
+            });
+            
+            // Return the list
+            return Ok(new { 
+                success = true, 
+                files = filesWithUrls,
+                count = filesWithUrls.Count() 
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error listing files for {Path}", Request.Path);
+            return StatusCode(500, new { error = "An error occurred while listing files" });
+        }
+    }
+
     #region Helper Methods and Handlers
 
     /// <summary>
@@ -439,15 +757,15 @@ public class EndpointController : ControllerBase
         // Pattern for GUID format: Endpoint(guid'xxxx-xxxx')
         var guidPattern = @"^\w+\(guid'([\w\-]+)'\)$";
         var guidMatch = Regex.Match(endpointName, guidPattern);
-        
+
         // Pattern for string format: Endpoint('xxxx')
         var stringPattern = @"^\w+\('([^']+)'\)$";
         var stringMatch = Regex.Match(endpointName, stringPattern);
-        
+
         // Pattern for numeric format: Endpoint(123)
         var numericPattern = @"^\w+\((\d+)\)$";
         var numericMatch = Regex.Match(endpointName, numericPattern);
-        
+
         if (guidMatch.Success)
         {
             // Extract the endpoint name and GUID ID
@@ -503,6 +821,12 @@ public class EndpointController : ControllerBase
         if (proxyEndpoints.ContainsKey(endpointName))
         {
             return (EndpointType.Proxy, endpointName, id, remainingPath);
+        }
+
+        var fileEndpoints = EndpointHandler.GetFileEndpoints();
+        if (fileEndpoints.ContainsKey(endpointName))
+        {
+            return (EndpointType.Files, endpointName, id, remainingPath);
         }
 
         return (EndpointType.Standard, endpointName, id, remainingPath);

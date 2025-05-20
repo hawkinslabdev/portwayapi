@@ -170,6 +170,7 @@ try
     {
         options.ConstraintMap.Add("proxy", typeof(ProxyConstraintAttribute));
     });
+    builder.Services.Configure<FileStorageOptions>(builder.Configuration.GetSection("FileStorage"));
 
     // Configure HTTP client
     var proxyUsername = Environment.GetEnvironmentVariable("PROXY_USERNAME");
@@ -212,10 +213,11 @@ try
     builder.Services.AddSingleton<IEdmModelBuilder, EdmModelBuilder>();
     builder.Services.AddSingleton<Compiler, SqlServerCompiler>();
     builder.Services.AddSingleton<IODataToSqlConverter, ODataToSqlConverter>();
+    builder.Services.AddSingleton<FileHandlerService>();
     builder.Services.AddSqlConnectionPooling(builder.Configuration);
 
     // Initialize endpoints directories
-    EnsureDirectoryStructure();
+    DirectoryHelper.EnsureDirectoryStructure();
     
     // Load Proxy endpoints
     var proxyEndpointsDirectory = Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Proxy");
@@ -513,30 +515,6 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
-}
-
-// Helper function to ensure directory structure
-void EnsureDirectoryStructure()
-{
-    // Ensure base endpoints directory exists
-    var endpointsBaseDir = Path.Combine(Directory.GetCurrentDirectory(), "endpoints");
-    if (!Directory.Exists(endpointsBaseDir))
-        Directory.CreateDirectory(endpointsBaseDir);
-   
-    // Ensure SQL endpoints directory exists
-    var sqlEndpointsDir = Path.Combine(endpointsBaseDir, "SQL");
-    if (!Directory.Exists(sqlEndpointsDir))
-        Directory.CreateDirectory(sqlEndpointsDir);
-   
-    // Ensure Proxy endpoints directory exists
-    var proxyEndpointsDir = Path.Combine(endpointsBaseDir, "Proxy");
-    if (!Directory.Exists(proxyEndpointsDir))
-        Directory.CreateDirectory(proxyEndpointsDir);
-   
-    // Ensure Webhook directory exists
-    var webhookDir = Path.Combine(endpointsBaseDir, "Webhooks");
-    if (!Directory.Exists(webhookDir))
-        Directory.CreateDirectory(webhookDir);
 }
 
 void LogApplicationStartup()

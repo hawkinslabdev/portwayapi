@@ -23,5 +23,10 @@ public static class DirectoryHelper
         var webhookDir = Path.Combine(endpointsBaseDir, "Webhooks");
         if (!Directory.Exists(webhookDir))
             Directory.CreateDirectory(webhookDir);
+            
+        // Ensure Files directory exists
+        var filesDir = Path.Combine(endpointsBaseDir, "Files");
+        if (!Directory.Exists(filesDir))
+            Directory.CreateDirectory(filesDir);
     }
 }

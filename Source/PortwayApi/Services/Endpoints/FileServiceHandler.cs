@@ -62,25 +62,40 @@ public class FileHandlerService : IDisposable
     private readonly ConcurrentDictionary<string, DateTime> _lastAccessTimes = new();
     private readonly ConcurrentDictionary<string, bool> _dirtyFlags = new();
     private readonly Timer _flushTimer;
+    private readonly FileSystemIndex _fileSystemIndex;
+    private readonly ILogger _logger;
     private long _currentMemoryUsage = 0;
     private bool _disposed = false;
-    
-    public FileHandlerService(IOptions<FileStorageOptions> options, CacheManager cacheManager)
+
+    public FileHandlerService(IOptions<FileStorageOptions> options, CacheManager cacheManager, ILogger<FileHandlerService> logger)
     {
         _options = options.Value;
         _cacheManager = cacheManager;
-        
+        _logger = logger;
+
         // Create the storage directory if it doesn't exist
         if (!Directory.Exists(_options.StorageDirectory))
         {
             Directory.CreateDirectory(_options.StorageDirectory);
-            Log.Information("✅ Created file storage directory: {Directory}", _options.StorageDirectory);
+            _logger.Information("✅ Created file storage directory: {Directory}", _options.StorageDirectory);
         }
-        
+
+        // Initialize the file system index
+        _fileSystemIndex = new FileSystemIndex(
+            _options.StorageDirectory,
+            _cacheManager,
+            _logger,
+            GenerateFileId,
+            GetContentType);
+
         // Start the flush timer to periodically write memory-cached files to disk
         _flushTimer = new Timer(FlushMemoryCache, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        
+        // Start a timer to refresh the file indices periodically
+        _ = new Timer(_ => _fileSystemIndex.RefreshAllIndicesAsync().ConfigureAwait(false), 
+            null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
     }
-    
+
     /// <summary>
     /// Uploads a file to storage
     /// </summary>
@@ -91,44 +106,44 @@ public class FileHandlerService : IDisposable
         {
             throw new ArgumentException("File is empty", nameof(fileStream));
         }
-        
+
         if (fileStream.Length > _options.MaxFileSizeBytes)
         {
             throw new ArgumentException($"File size exceeds the maximum allowed size ({_options.MaxFileSizeBytes / 1024 / 1024}MB)", nameof(fileStream));
         }
-        
+
         // Validate file extension
         string extension = Path.GetExtension(filename).ToLowerInvariant();
-        
+
         if (_options.BlockedExtensions.Contains(extension))
         {
             throw new ArgumentException($"Files with extension {extension} are not allowed", nameof(filename));
         }
-        
+
         if (_options.AllowedExtensions.Count > 0 && !_options.AllowedExtensions.Contains(extension))
         {
             throw new ArgumentException($"Only files with extensions {string.Join(", ", _options.AllowedExtensions)} are allowed", nameof(filename));
         }
-        
+
         // Sanitize filename to prevent path traversal attacks
         string safeFilename = SanitizeFileName(filename);
-        
+
         // Create a unique file ID
         string fileId = GenerateFileId(environment, safeFilename);
-        
+
         // Create the environment directory if it doesn't exist
         string environmentDir = Path.Combine(_options.StorageDirectory, environment);
         Directory.CreateDirectory(environmentDir);
-        
+
         // Determine the file path
         string filePath = Path.Combine(environmentDir, safeFilename);
-        
+
         // Check if file exists and handle overwrite
         if (File.Exists(filePath) && !overwrite)
         {
             throw new InvalidOperationException($"File {safeFilename} already exists. Use overwrite=true to replace it.");
         }
-        
+
         // Determine whether to use memory cache
         if (_options.UseMemoryCache)
         {
@@ -138,20 +153,20 @@ public class FileHandlerService : IDisposable
                 // Memory cache is full, flush old files
                 await FlushOldestFilesAsync(_currentMemoryUsage + fileStream.Length - _options.MaxTotalMemoryCacheMB * 1024 * 1024);
             }
-            
+
             // Store in memory first
             var memoryStream = new MemoryStream();
             await fileStream.CopyToAsync(memoryStream);
             memoryStream.Position = 0;
-            
+
             // Add to memory cache
             _memoryCache[fileId] = memoryStream;
             _lastAccessTimes[fileId] = DateTime.UtcNow;
             _dirtyFlags[fileId] = true;
-            
+
             // Update current memory usage
             _currentMemoryUsage += memoryStream.Length;
-            
+
             Log.Debug("💾 File {Filename} stored in memory cache with ID {FileId}", safeFilename, fileId);
         }
         else
@@ -161,13 +176,23 @@ public class FileHandlerService : IDisposable
             {
                 await fileStream.CopyToAsync(fileStream2);
             }
-            
+
             Log.Debug("💾 File {Filename} saved directly to disk at {FilePath}", safeFilename, filePath);
         }
+
+        await _fileSystemIndex.UpdateIndexAsync(environment, safeFilename, new FileMetadata
+        {
+            FileId = fileId,
+            FileName = safeFilename,
+            ContentType = GetContentType(safeFilename),
+            Size = fileStream.Length,
+            LastModified = DateTime.UtcNow,
+            IsInMemoryOnly = _options.UseMemoryCache
+        });
         
         return fileId;
     }
-    
+
     /// <summary>
     /// Downloads a file from storage
     /// </summary>
@@ -178,41 +203,41 @@ public class FileHandlerService : IDisposable
         {
             throw new ArgumentException("Invalid file ID", nameof(fileId));
         }
-        
+
         // Check if file exists in memory cache
         if (_memoryCache.TryGetValue(fileId, out var cachedStream))
         {
             // Update last access time
             _lastAccessTimes[fileId] = DateTime.UtcNow;
-            
+
             // Return a copy of the stream to avoid modification of the cached stream
             var streamCopy = new MemoryStream();
             cachedStream.Position = 0;
             await cachedStream.CopyToAsync(streamCopy);
             streamCopy.Position = 0;
-            
+
             Log.Debug("📤 File {Filename} retrieved from memory cache with ID {FileId}", filename, fileId);
-            
+
             return (streamCopy, filename, GetContentType(filename));
         }
-        
+
         // File not in memory, check on disk
         string filePath = Path.Combine(_options.StorageDirectory, environment, filename);
-        
+
         if (!File.Exists(filePath))
         {
             throw new FileNotFoundException($"File {filename} not found", filename);
         }
-        
+
         // Load file into memory stream
         var fileStream = new MemoryStream();
         using (var diskStream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
         {
             await diskStream.CopyToAsync(fileStream);
         }
-        
+
         fileStream.Position = 0;
-        
+
         // If memory caching is enabled, store in cache for next time
         if (_options.UseMemoryCache && fileStream.Length <= _options.MaxFileSizeBytes)
         {
@@ -222,30 +247,30 @@ public class FileHandlerService : IDisposable
                 // Memory cache is full, flush old files
                 await FlushOldestFilesAsync(_currentMemoryUsage + fileStream.Length - _options.MaxTotalMemoryCacheMB * 1024 * 1024);
             }
-            
+
             // Create a copy for the cache
             var cacheStream = new MemoryStream();
             fileStream.Position = 0;
             await fileStream.CopyToAsync(cacheStream);
             fileStream.Position = 0;
             cacheStream.Position = 0;
-            
+
             // Add to memory cache
             _memoryCache[fileId] = cacheStream;
             _lastAccessTimes[fileId] = DateTime.UtcNow;
             _dirtyFlags[fileId] = false; // Not dirty since we just loaded from disk
-            
+
             // Update current memory usage
             _currentMemoryUsage += cacheStream.Length;
-            
+
             Log.Debug("💾 File {Filename} loaded into memory cache with ID {FileId}", filename, fileId);
         }
-        
+
         Log.Debug("📤 File {Filename} retrieved from disk with ID {FileId}", filename, fileId);
-        
+
         return (fileStream, filename, GetContentType(filename));
     }
-    
+
     /// <summary>
     /// Deletes a file from storage
     /// </summary>
@@ -256,87 +281,54 @@ public class FileHandlerService : IDisposable
         {
             throw new ArgumentException("Invalid file ID", nameof(fileId));
         }
-        
+
         // Remove from memory cache if present
         if (_memoryCache.TryRemove(fileId, out var cachedStream))
         {
             // Update memory usage
             _currentMemoryUsage -= cachedStream.Length;
-            
+
             // Clean up
             await cachedStream.DisposeAsync();
             _lastAccessTimes.TryRemove(fileId, out _);
             _dirtyFlags.TryRemove(fileId, out _);
-            
+
             Log.Debug("🗑️ File {Filename} removed from memory cache with ID {FileId}", filename, fileId);
         }
-        
+
         // Delete from disk if it exists
         string filePath = Path.Combine(_options.StorageDirectory, environment, filename);
-        
+
         if (File.Exists(filePath))
         {
             File.Delete(filePath);
             Log.Debug("🗑️ File {Filename} deleted from disk at {FilePath}", filename, filePath);
         }
+        
+        await _fileSystemIndex.UpdateIndexAsync(environment, filename, isDeleted: true);
     }
-    
+
     /// <summary>
     /// Lists files in an environment
     /// </summary>
     public async Task<IEnumerable<FileInfo>> ListFilesAsync(string environment, string? prefix = null)
     {
-        string environmentDir = Path.Combine(_options.StorageDirectory, environment);
+        // Use the cached index instead of filesystem operations
+        var files = await _fileSystemIndex.ListFilesAsync(environment, prefix);
         
-        if (!Directory.Exists(environmentDir))
+        // Convert to FileInfo objects if needed
+        return files.Select(f => new FileInfo
         {
-            Directory.CreateDirectory(environmentDir);
-            return Enumerable.Empty<FileInfo>();
-        }
-        
-        // Get files from disk
-        var directoryInfo = new DirectoryInfo(environmentDir);
-        var files = directoryInfo.GetFiles()
-            .Where(f => string.IsNullOrEmpty(prefix) || f.Name.StartsWith(prefix))
-            .Select(f => new FileInfo
-            {
-                FileId = GenerateFileId(environment, f.Name),
-                FileName = f.Name,
-                ContentType = GetContentType(f.Name),
-                Size = f.Length,
-                LastModified = f.LastWriteTimeUtc,
-                Environment = environment
-            })
-            .ToList();
-        
-        // Add files that are only in memory but not yet on disk
-        foreach (var cacheEntry in _memoryCache)
-        {
-            if (ParseFileId(cacheEntry.Key, out var entryEnv, out var entryFilename))
-            {
-                if (entryEnv == environment && (string.IsNullOrEmpty(prefix) || entryFilename.StartsWith(prefix)))
-                {
-                    // Check if this file is already in the list (might be both on disk and in memory)
-                    if (!files.Any(f => f.FileName == entryFilename))
-                    {
-                        files.Add(new FileInfo
-                        {
-                            FileId = cacheEntry.Key,
-                            FileName = entryFilename,
-                            ContentType = GetContentType(entryFilename),
-                            Size = cacheEntry.Value.Length,
-                            LastModified = _lastAccessTimes.TryGetValue(cacheEntry.Key, out var time) ? time : DateTime.UtcNow,
-                            Environment = entryEnv,
-                            IsInMemoryOnly = true
-                        });
-                    }
-                }
-            }
-        }
-        
-        return files.OrderBy(f => f.FileName);
+            FileId = f.FileId,
+            FileName = f.FileName,
+            ContentType = f.ContentType,
+            Size = f.Size,
+            LastModified = f.LastModified,
+            Environment = environment,
+            IsInMemoryOnly = f.IsInMemoryOnly
+        });
     }
-    
+
     /// <summary>
     /// Flushes all dirty files from memory to disk
     /// </summary>
@@ -350,10 +342,10 @@ public class FileHandlerService : IDisposable
                 await FlushFileToDiskAsync(fileId);
             }
         }
-        
+
         Log.Information("✅ Flushed all dirty files from memory cache to disk");
     }
-    
+
     /// <summary>
     /// Flushes a specific file from memory to disk
     /// </summary>
@@ -363,27 +355,27 @@ public class FileHandlerService : IDisposable
         {
             return; // File not in memory cache
         }
-        
+
         // Check if file is dirty
         if (!_dirtyFlags.TryGetValue(fileId, out var isDirty) || !isDirty)
         {
             return; // File is not dirty, no need to flush
         }
-        
+
         // Parse the file ID to get environment and filename
         if (!ParseFileId(fileId, out string environment, out string filename))
         {
             Log.Warning("⚠️ Invalid file ID in memory cache: {FileId}", fileId);
             return;
         }
-        
+
         // Create the environment directory if it doesn't exist
         string environmentDir = Path.Combine(_options.StorageDirectory, environment);
         Directory.CreateDirectory(environmentDir);
-        
+
         // Determine the file path
         string filePath = Path.Combine(environmentDir, filename);
-        
+
         try
         {
             // Write to disk
@@ -392,10 +384,10 @@ public class FileHandlerService : IDisposable
                 memoryStream.Position = 0;
                 await memoryStream.CopyToAsync(fileStream);
             }
-            
+
             // Mark as not dirty
             _dirtyFlags[fileId] = false;
-            
+
             Log.Debug("💾 Flushed file {Filename} from memory to disk at {FilePath}", filename, filePath);
         }
         catch (Exception ex)
@@ -403,7 +395,7 @@ public class FileHandlerService : IDisposable
             Log.Error(ex, "❌ Error flushing file {Filename} to disk", filename);
         }
     }
-    
+
     /// <summary>
     /// Timer callback to flush memory cache to disk
     /// </summary>
@@ -416,18 +408,18 @@ public class FileHandlerService : IDisposable
                 .Where(kv => kv.Value)
                 .Select(kv => kv.Key)
                 .ToList();
-            
+
             foreach (var fileId in dirtyFiles)
             {
                 await FlushFileToDiskAsync(fileId);
             }
-            
+
             // Find old files to remove from memory
             var filesToRemove = _lastAccessTimes
                 .Where(kv => (DateTime.UtcNow - kv.Value).TotalSeconds > _options.MemoryCacheTimeSeconds)
                 .Select(kv => kv.Key)
                 .ToList();
-            
+
             if (filesToRemove.Any())
             {
                 // Remove old files from memory
@@ -438,18 +430,18 @@ public class FileHandlerService : IDisposable
                     {
                         await FlushFileToDiskAsync(fileId);
                     }
-                    
+
                     // Remove from memory cache
                     if (_memoryCache.TryRemove(fileId, out var stream))
                     {
                         _currentMemoryUsage -= stream.Length;
                         await stream.DisposeAsync();
                     }
-                    
+
                     _lastAccessTimes.TryRemove(fileId, out _);
                     _dirtyFlags.TryRemove(fileId, out _);
                 }
-                
+
                 Log.Debug("🧹 Removed {Count} old files from memory cache", filesToRemove.Count);
             }
         }
@@ -458,7 +450,7 @@ public class FileHandlerService : IDisposable
             Log.Error(ex, "❌ Error flushing memory cache");
         }
     }
-    
+
     /// <summary>
     /// Flushes oldest files from memory until the specified amount of space is freed
     /// </summary>
@@ -468,15 +460,15 @@ public class FileHandlerService : IDisposable
         {
             return; // Nothing to free
         }
-        
+
         // Sort files by last access time
         var filesOrderedByAge = _lastAccessTimes
             .OrderBy(kv => kv.Value)
             .Select(kv => kv.Key)
             .ToList();
-        
+
         long freedBytes = 0;
-        
+
         foreach (var fileId in filesOrderedByAge)
         {
             // Skip if this file doesn't exist in memory anymore
@@ -484,14 +476,14 @@ public class FileHandlerService : IDisposable
             {
                 continue;
             }
-            
+
             // Check if file is dirty
             if (_dirtyFlags.TryGetValue(fileId, out var isDirty) && isDirty)
             {
                 // Flush to disk first
                 await FlushFileToDiskAsync(fileId);
             }
-            
+
             // Remove from memory
             if (_memoryCache.TryRemove(fileId, out var stream))
             {
@@ -499,20 +491,20 @@ public class FileHandlerService : IDisposable
                 _currentMemoryUsage -= stream.Length;
                 await stream.DisposeAsync();
             }
-            
+
             _lastAccessTimes.TryRemove(fileId, out _);
             _dirtyFlags.TryRemove(fileId, out _);
-            
+
             // Check if we've freed enough space
             if (freedBytes >= bytesToFree)
             {
                 break;
             }
         }
-        
+
         Log.Debug("🧹 Freed {FreedBytes} bytes from memory cache by removing oldest files", freedBytes);
     }
-    
+
     /// <summary>
     /// Generates a file ID from environment and filename
     /// </summary>
@@ -526,7 +518,7 @@ public class FileHandlerService : IDisposable
             .Replace('/', '_')
             .Replace("=", "");
     }
-    
+
     /// <summary>
     /// Parses a file ID into environment and filename
     /// </summary>
@@ -534,7 +526,7 @@ public class FileHandlerService : IDisposable
     {
         environment = "";
         filename = "";
-        
+
         try
         {
             // Restore padding if needed
@@ -544,25 +536,25 @@ public class FileHandlerService : IDisposable
             {
                 paddedId += new string('=', padding);
             }
-            
+
             // Convert from URL-safe Base64
             string base64 = paddedId
                 .Replace('-', '+')
                 .Replace('_', '/');
-                
+
             byte[] bytes = Convert.FromBase64String(base64);
             string rawId = Encoding.UTF8.GetString(bytes);
-            
+
             // Split into environment and filename
             int separatorIndex = rawId.IndexOf(':');
             if (separatorIndex < 0)
             {
                 return false;
             }
-            
+
             environment = rawId.Substring(0, separatorIndex);
             filename = rawId.Substring(separatorIndex + 1);
-            
+
             return true;
         }
         catch
@@ -570,7 +562,7 @@ public class FileHandlerService : IDisposable
             return false;
         }
     }
-    
+
     /// <summary>
     /// Sanitizes a filename to prevent path traversal attacks
     /// </summary>
@@ -578,24 +570,24 @@ public class FileHandlerService : IDisposable
     {
         // Remove any directory components
         filename = Path.GetFileName(filename);
-        
+
         // Replace invalid characters
         var invalidChars = Path.GetInvalidFileNameChars();
         foreach (var c in invalidChars)
         {
             filename = filename.Replace(c, '_');
         }
-        
+
         return filename;
     }
-    
+
     /// <summary>
     /// Determines the content type for a filename
     /// </summary>
     private string GetContentType(string filename)
     {
         string extension = Path.GetExtension(filename).ToLowerInvariant();
-        
+
         return extension switch
         {
             ".jpg" or ".jpeg" => "image/jpeg",
@@ -637,37 +629,206 @@ public class FileHandlerService : IDisposable
         public string Environment { get; set; } = string.Empty;
         public bool IsInMemoryOnly { get; set; } = false;
     }
-    
+
     public void Dispose()
     {
         Dispose(true);
         GC.SuppressFinalize(this);
     }
-    
+
     protected virtual void Dispose(bool disposing)
     {
         if (_disposed)
             return;
-        
+
         if (disposing)
         {
             // Flush any dirty files before shutting down
             FlushAllAsync().GetAwaiter().GetResult();
-            
+
             // Dispose the timer
             _flushTimer?.Dispose();
-            
+
             // Dispose all memory streams
             foreach (var stream in _memoryCache.Values)
             {
                 stream.Dispose();
             }
-            
+
             _memoryCache.Clear();
             _lastAccessTimes.Clear();
             _dirtyFlags.Clear();
         }
-        
+
         _disposed = true;
+    }
+}
+
+public class FileSystemIndex
+{
+    private readonly string _baseDirectory;
+    private readonly ICacheProvider _cacheProvider;
+    private readonly SemaphoreSlim _indexLock = new SemaphoreSlim(1, 1);
+    private readonly ILogger _logger;
+    private readonly ConcurrentDictionary<string, Dictionary<string, FileMetadata>> _environmentIndices = new();
+    private readonly Func<string, string, string> _fileIdGenerator;
+    private readonly Func<string, string> _contentTypeResolver;
+    
+    public FileSystemIndex(
+        string baseDirectory, 
+        ICacheProvider cacheProvider, 
+        ILogger logger,
+        Func<string, string, string> fileIdGenerator,
+        Func<string, string> contentTypeResolver)
+    {
+        _baseDirectory = baseDirectory;
+        _cacheProvider = cacheProvider;
+        _logger = logger;
+        _fileIdGenerator = fileIdGenerator;
+        _contentTypeResolver = contentTypeResolver;
+    }
+    
+    // File metadata stored in cache
+    public class FileMetadata
+    {
+        public string FileId { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public long Size { get; set; }
+        public DateTime LastModified { get; set; }
+        public bool IsInMemoryOnly { get; set; }
+    }
+    
+    public async Task<Dictionary<string, FileMetadata>> GetDirectoryIndexAsync(string environment, bool forceRefresh = false)
+    {
+        string cacheKey = $"file:index:{environment}";
+        
+        // Try to get from cache first if not forcing refresh
+        if (!forceRefresh)
+        {
+            var cachedIndex = await _cacheProvider.GetAsync<Dictionary<string, FileMetadata>>(cacheKey);
+            if (cachedIndex != null)
+            {
+                return cachedIndex;
+            }
+        }
+        
+        // Cache miss or force refresh - rebuild index from filesystem
+        await _indexLock.WaitAsync();
+        try
+        {
+            // Double-check after acquiring lock
+            if (!forceRefresh)
+            {
+                var cachedIndex = await _cacheProvider.GetAsync<Dictionary<string, FileMetadata>>(cacheKey);
+                if (cachedIndex != null)
+                {
+                    return cachedIndex;
+                }
+            }
+            
+            string environmentDir = Path.Combine(_baseDirectory, environment);
+            Dictionary<string, FileMetadata> index = new();
+            
+            if (Directory.Exists(environmentDir))
+            {
+                // Use enumerator for better memory usage with large directories
+                foreach (var file in Directory.EnumerateFiles(environmentDir))
+                {
+                    var fileInfo = new FileInfo(file);
+                    string fileName = Path.GetFileName(file);
+                    
+                    index[fileName] = new FileMetadata
+                    {
+                        FileId = _fileIdGenerator(environment, fileName),
+                        FileName = fileName,
+                        ContentType = _contentTypeResolver(fileName),
+                        Size = fileInfo.Length,
+                        LastModified = fileInfo.LastWriteTimeUtc,
+                        IsInMemoryOnly = false
+                    };
+                }
+            }
+            
+            // Cache the index with expiration
+            await _cacheProvider.SetAsync(cacheKey, index, TimeSpan.FromMinutes(30));
+            
+            // Also store in memory for very fast access
+            _environmentIndices[environment] = index;
+            
+            _logger.Debug("📂 Built file index for environment {Environment}: {Count} files", 
+                environment, index.Count);
+            
+            return index;
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+    
+    // Update index when files are added/modified/deleted
+    public async Task UpdateIndexAsync(string environment, string fileName, FileMetadata metadata = null, bool isDeleted = false)
+    {
+        string cacheKey = $"file:index:{environment}";
+        
+        await _indexLock.WaitAsync();
+        try
+        {
+            // Get current index (from memory or rebuild if needed)
+            Dictionary<string, FileMetadata> index;
+            if (_environmentIndices.TryGetValue(environment, out var existingIndex))
+            {
+                index = existingIndex;
+            }
+            else
+            {
+                // Load from cache or rebuild
+                index = await GetDirectoryIndexAsync(environment);
+            }
+            
+            if (isDeleted)
+            {
+                index.Remove(fileName);
+                _logger.Debug("🗑️ Removed {FileName} from file index for {Environment}", fileName, environment);
+            }
+            else if (metadata != null)
+            {
+                index[fileName] = metadata;
+                _logger.Debug("📝 Updated index for {FileName} in {Environment}", fileName, environment);
+            }
+            
+            // Update cache
+            await _cacheProvider.SetAsync(cacheKey, index, TimeSpan.FromMinutes(30));
+            
+            // Update in-memory index
+            _environmentIndices[environment] = index;
+        }
+        finally
+        {
+            _indexLock.Release();
+        }
+    }
+    
+    // List files with efficient filtering using the index
+    public async Task<IEnumerable<FileMetadata>> ListFilesAsync(string environment, string prefix = null)
+    {
+        var index = await GetDirectoryIndexAsync(environment);
+        
+        // Efficiently filter in memory
+        return string.IsNullOrEmpty(prefix)
+            ? index.Values
+            : index.Values.Where(f => f.FileName.StartsWith(prefix));
+    }
+    
+    // Periodic refresh to catch files added outside the API
+    public async Task RefreshAllIndicesAsync()
+    {
+        foreach (var environment in _environmentIndices.Keys.ToList())
+        {
+            await GetDirectoryIndexAsync(environment, forceRefresh: true);
+        }
+        
+        _logger.Information("🔄 Refreshed all file indices");
     }
 }

@@ -24,6 +24,9 @@ public class EndpointDefinition
     // Environment restrictions
     public List<string>? AllowedEnvironments { get; set; }
 
+    // File endpoint properties (optional, only for file endpoints)
+    public Dictionary<string, object>? Properties { get; set; }
+
     // Helper properties to simplify type checking
     public bool IsStandard => Type == EndpointType.Standard && !IsPrivate;
     public bool IsComposite => Type == EndpointType.Composite || 

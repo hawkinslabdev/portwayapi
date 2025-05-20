@@ -1,5 +1,5 @@
-namespace PortwayApi.Services.Files;
-
+namespace PortwayApi.Services.Files
+{
 using System;
 using System.Collections.Concurrent;
 using System.IO;
@@ -71,7 +71,7 @@ public class FileHandlerService : IDisposable
     {
         _options = options.Value;
         _cacheManager = cacheManager;
-        _logger = logger;
+        _logger = Serilog.Log.Logger; // Use Serilog's static logger
 
         // Create the storage directory if it doesn't exist
         if (!Directory.Exists(_options.StorageDirectory))
@@ -180,7 +180,7 @@ public class FileHandlerService : IDisposable
             Log.Debug("💾 File {Filename} saved directly to disk at {FilePath}", safeFilename, filePath);
         }
 
-        await _fileSystemIndex.UpdateIndexAsync(environment, safeFilename, new FileMetadata
+        await _fileSystemIndex.UpdateIndexAsync(environment, safeFilename, new FileSystemIndex.FileMetadata
         {
             FileId = fileId,
             FileName = safeFilename,
@@ -314,7 +314,7 @@ public class FileHandlerService : IDisposable
     public async Task<IEnumerable<FileInfo>> ListFilesAsync(string environment, string? prefix = null)
     {
         // Use the cached index instead of filesystem operations
-        var files = await _fileSystemIndex.ListFilesAsync(environment, prefix);
+        var files = await _fileSystemIndex.ListFilesAsync(environment, prefix ?? string.Empty);
         
         // Convert to FileInfo objects if needed
         return files.Select(f => new FileInfo
@@ -768,7 +768,7 @@ public class FileSystemIndex
     }
     
     // Update index when files are added/modified/deleted
-    public async Task UpdateIndexAsync(string environment, string fileName, FileMetadata metadata = null, bool isDeleted = false)
+    public async Task UpdateIndexAsync(string environment, string fileName, FileMetadata? metadata = null, bool isDeleted = false)
     {
         string cacheKey = $"file:index:{environment}";
         
@@ -811,7 +811,7 @@ public class FileSystemIndex
     }
     
     // List files with efficient filtering using the index
-    public async Task<IEnumerable<FileMetadata>> ListFilesAsync(string environment, string prefix = null)
+    public async Task<IEnumerable<FileMetadata>> ListFilesAsync(string environment, string? prefix = null)
     {
         var index = await GetDirectoryIndexAsync(environment);
         
@@ -831,4 +831,5 @@ public class FileSystemIndex
         
         _logger.Information("🔄 Refreshed all file indices");
     }
+}
 }

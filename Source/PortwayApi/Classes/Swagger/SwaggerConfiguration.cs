@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
+using PortwayApi.Classes.Swagger;
 using Serilog;
 using Swashbuckle.AspNetCore.SwaggerGen;
 

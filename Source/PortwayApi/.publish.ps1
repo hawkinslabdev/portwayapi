@@ -87,7 +87,7 @@ $webConfigContent | Out-File -FilePath $webConfigPath -Encoding UTF8 -Force
 # Ensure .gitignore exists
 $gitignorePath = "C:\Github\portway\.gitignore"
 $logIgnoreRules = @(
-    "`n# Ignore log files",
+    "# Ignore log files",
     "*.log",
     "/logs/"
 )

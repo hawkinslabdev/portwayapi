@@ -36,9 +36,9 @@ public class StartupLogger : IHostedService
     {
         try
         {
-            LogApplicationStartup();
             LogEnvironmentInfo();
             LogConfigurationInfo();
+            LogApplicationStartup();
         }
         catch (Exception ex)
         {

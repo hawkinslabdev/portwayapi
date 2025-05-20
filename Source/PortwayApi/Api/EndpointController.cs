@@ -476,11 +476,11 @@ public class EndpointController : ControllerBase
             }
             
             // Get storage options from endpoint definition
-            var baseDirectory = endpoint.Properties.TryGetValue("BaseDirectory", out var baseDirObj) 
-                ? baseDirObj.ToString() 
-                : "";
+            var baseDirectory = endpoint.Properties != null && endpoint.Properties.TryGetValue("BaseDirectory", out var baseDirObj) 
+                ? baseDirObj?.ToString() ?? string.Empty
+                : string.Empty;
                 
-            var allowedExtensions = endpoint.Properties.TryGetValue("AllowedExtensions", out var extensionsObj) 
+            var allowedExtensions = endpoint.Properties != null && endpoint.Properties.TryGetValue("AllowedExtensions", out var extensionsObj) 
                 && extensionsObj is List<string> extensions
                 ? extensions
                 : new List<string>();
@@ -691,9 +691,9 @@ public class EndpointController : ControllerBase
             }
             
             // Get base directory for this endpoint
-            var baseDirectory = endpoint.Properties.TryGetValue("BaseDirectory", out var baseDirObj) 
-                ? baseDirObj.ToString() 
-                : "";
+            var baseDirectory = (endpoint.Properties != null && endpoint.Properties.TryGetValue("BaseDirectory", out var baseDirObj)) 
+                ? baseDirObj?.ToString() ?? string.Empty
+                : string.Empty;
                 
             // Prepare the prefix by combining base directory and provided prefix
             if (!string.IsNullOrEmpty(baseDirectory))

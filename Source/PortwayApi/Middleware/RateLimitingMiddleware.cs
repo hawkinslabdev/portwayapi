@@ -158,6 +158,8 @@ public class RateLimiter
     // Configuration for block tracking
     private readonly int _maxConsecutiveBlocks = 3;
     private readonly TimeSpan _logCooldown = TimeSpan.FromSeconds(10);
+    // Logging suppression duration for blocked IPs
+    private readonly TimeSpan _logSuppressDuration = TimeSpan.FromSeconds(5);
 
     public RateLimiter(
         RequestDelegate next,

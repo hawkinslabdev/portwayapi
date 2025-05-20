@@ -156,6 +156,7 @@ public static class SwaggerConfiguration
                 // Add filters in the correct order
                 c.DocumentFilter<DynamicEndpointDocumentFilter>();
                 c.DocumentFilter<CompositeEndpointDocumentFilter>();
+                c.DocumentFilter<FileEndpointDocumentFilter>();
                 c.OperationFilter<DynamicEndpointOperationFilter>();
                 
                 // Add this line to resolve conflicting actions
@@ -172,6 +173,7 @@ public static class SwaggerConfiguration
             builder.Services.AddSingleton<DynamicEndpointDocumentFilter>();
             builder.Services.AddSingleton<CompositeEndpointDocumentFilter>();
             builder.Services.AddSingleton<DynamicEndpointOperationFilter>();
+            builder.Services.AddSingleton<FileEndpointDocumentFilter>();
             builder.Services.AddSingleton<AlphabeticalEndpointSorter>();
             
             Log.Debug("✅ Swagger services registered successfully");

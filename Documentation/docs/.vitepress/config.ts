@@ -98,10 +98,11 @@ export default withMermaid(
           ]
         },
         {
-          text: 'Tools',
+          text: 'Tools & Options',
           items: [
             { text: 'Token Generator', link: '/reference/token-generator' },
             { text: 'Health Checks', link: '/reference/health-checks' },
+            { text: 'Caching', link: '/reference/caching' },
             { text: 'Logging', link: '/reference/logging' },
             { text: 'Audit', link: '/reference/audit' }
           ]

@@ -40,7 +40,8 @@ export default withMermaid(
             { text: 'SQL', link: '/guide/endpoints-sql' },
             { text: 'Proxy', link: '/guide/endpoints-proxy' },
             { text: 'Composite', link: '/guide/endpoints-composite' },
-            { text: 'Webhook', link: '/guide/endpoints-webhook' }
+            { text: 'File System', link: '/guide/endpoints-file' },
+            { text: 'Webhook', link: '/guide/endpoints-webhook' }            
           ]
         },
         {

@@ -1,0 +1,7 @@
+{
+  "StorageType": "Local",
+  "BaseDirectory": "documents",
+  "AllowedExtensions": [".pdf", ".docx", ".xlsx", ".txt"],
+  "IsPrivate": false,
+  "AllowedEnvironments": ["600", "700"]
+}

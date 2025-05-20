@@ -15,7 +15,7 @@ using PortwayApi.Helpers;
 using PortwayApi.Interfaces;
 using PortwayApi.Middleware;
 using PortwayApi.Services;
-using PortwayApi.Services.Caching; // Add this for caching services
+using PortwayApi.Services.Caching;
 using PortwayApi.Services.Files;
 using System.Text;
 using System.Text.Json;
@@ -539,7 +539,6 @@ public static class RateLimitingExtensions
 {
     public static IServiceCollection AddRateLimiting(this IServiceCollection services, IConfiguration configuration)
     {
-        // Nothing to configure, the middleware doesn't require additional services
         return services;
     }
 }

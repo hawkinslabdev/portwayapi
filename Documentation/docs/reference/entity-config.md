@@ -1,6 +1,6 @@
 # Entity Configuration
 
-Entity configuration files define how endpoints behave and what data they expose. Each endpoint type (SQL, Proxy, Composite, Webhook) has specific configuration options.
+Entity configuration files define how endpoints behave and what data they expose. Each endpoint type (SQL, Proxy, Composite, Webhook, File) has specific configuration options.
 
 ## File Structure
 
@@ -17,8 +17,11 @@ Entity configuration files are JSON files located in the endpoints directory str
   ├── Composite/
   │   └── [EntityName]/
   │       └── entity.json
-  └── Webhooks/
-      └── entity.json
+  ├── Webhooks/
+  │   └── entity.json
+  └── Files/
+      └── [EntityName]/
+          └── entity.json
 ```
 
 ## SQL Entity Configuration
@@ -230,6 +233,56 @@ Webhook entities receive and store external webhook data.
 | `DatabaseSchema` | string | No | Database schema |
 | `AllowedColumns` | array | Yes | Allowed webhook IDs |
 
+## File Entity Configuration
+
+File entities enable storage and retrieval of files through dedicated endpoints.
+
+### Basic Structure
+
+```json
+{
+  "StorageType": "Local",
+  "BaseDirectory": "documents",
+  "AllowedExtensions": [".pdf", ".docx", ".xlsx", ".txt"],
+  "IsPrivate": false,
+  "AllowedEnvironments": ["600", "700"]
+}
+```
+
+### With Directory Organization
+
+```json
+{
+  "StorageType": "Local",
+  "BaseDirectory": "customer-files/{env}",
+  "AllowedExtensions": [".jpg", ".png", ".pdf", ".xlsx"],
+  "IsPrivate": false,
+  "AllowedEnvironments": ["600", "700"]
+}
+```
+
+### Security-Restricted Endpoint
+
+```json
+{
+  "StorageType": "Local",
+  "BaseDirectory": "secure-documents",
+  "AllowedExtensions": [".pdf", ".xlsx"],
+  "IsPrivate": true,
+  "AllowedEnvironments": ["600"]
+}
+```
+
+### Property Reference
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `StorageType` | string | Yes | Storage provider type (currently only "Local") |
+| `BaseDirectory` | string | No | Base directory for file storage (default: endpoint name) |
+| `AllowedExtensions` | array | No | List of allowed file extensions (empty = allow all) |
+| `IsPrivate` | boolean | No | Whether endpoint is hidden from documentation (default: false) |
+| `AllowedEnvironments` | array | No | Environments that can access this endpoint |
+
 ## Common Configuration Patterns
 
 ### Environment-Specific Access
@@ -270,6 +323,17 @@ Use stored procedures for data operations:
 {
   "Procedure": "dbo.sp_ManageServiceRequests",
   "AllowedMethods": ["GET", "POST", "PUT", "DELETE"]
+}
+```
+
+### File Organization Patterns
+
+Organize files by environment and type:
+
+```json
+{
+  "BaseDirectory": "reports/{env}/monthly",
+  "AllowedExtensions": [".pdf", ".xlsx"]
 }
 ```
 
@@ -340,6 +404,46 @@ Ensure atomic operations:
 }
 ```
 
+### 5. File Type Restrictions
+
+Restrict file types for security:
+
+```json
+{
+  "AllowedExtensions": [
+    ".pdf",      // ✓ Document format
+    ".xlsx",     // ✓ Spreadsheet
+    ".jpg",      // ✓ Image format
+    ".txt",      // ✓ Text format
+    // Avoid executable or script files
+  ]
+}
+```
+
+### 6. File Storage Segmentation
+
+Separate files by purpose:
+
+```json
+// Documents endpoint
+{
+  "BaseDirectory": "documents",
+  "AllowedExtensions": [".pdf", ".docx", ".txt"]
+}
+
+// Images endpoint
+{
+  "BaseDirectory": "images",
+  "AllowedExtensions": [".jpg", ".png", ".gif"]
+}
+
+// Data endpoint
+{
+  "BaseDirectory": "data",
+  "AllowedExtensions": [".csv", ".xlsx", ".json"]
+}
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -365,6 +469,18 @@ Ensure atomic operations:
    - Validate transformation syntax
    - Review step order
 
+5. **File Upload Failures**
+   - Check file extension against `AllowedExtensions`
+   - Verify file size is within limits
+   - Ensure base directory exists and is writable
+   - Check disk space availability
+
+6. **File Download Issues**
+   - Validate file ID format
+   - Check file existence in storage
+   - Verify environment matches upload environment
+   - Ensure permissions on storage location
+
 ### Validation Checklist
 
 - [ ] Valid JSON syntax
@@ -375,6 +491,41 @@ Ensure atomic operations:
 - [ ] Environment names match configuration
 - [ ] Column names match database schema
 - [ ] Stored procedure exists in database
+- [ ] File extensions in correct format (e.g., ".pdf" not "pdf")
+- [ ] Storage directories exist and are writable
+
+## Server Configuration Options
+
+### File Storage Configuration
+
+Additional options can be set in the server's `appsettings.json`:
+
+```json
+"FileStorage": {
+  "StorageDirectory": "files",          // Root directory for all files
+  "MaxFileSizeBytes": 52428800,         // 50MB default
+  "UseMemoryCache": true,               // Enable memory caching
+  "MemoryCacheTimeSeconds": 60,         // Cache duration
+  "MaxTotalMemoryCacheMB": 200,         // Memory cache limit
+  "BlockedExtensions": [                // Globally blocked extensions
+    ".exe", ".dll", ".bat", ".sh", 
+    ".cmd", ".msi", ".vbs"
+  ]
+}
+```
+
+### Environment Configuration
+
+Configure allowed environments in `environments/settings.json`:
+
+```json
+{
+  "Environment": {
+    "ServerName": "VM2K22",
+    "AllowedEnvironments": ["600", "700", "Synergy"]
+  }
+}
+```
 
 ## Related Topics
 
@@ -382,3 +533,4 @@ Ensure atomic operations:
 - [API Overview](/reference/api/overview) - API endpoint patterns
 - [SQL Endpoints](/guide/endpoints/sql) - SQL endpoint guide
 - [Composite Endpoints](/guide/endpoints/composite) - Composite endpoint guide
+- [File Operations](/guide/endpoints/files) - File handling guide

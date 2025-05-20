@@ -32,6 +32,7 @@ public class EndpointController : ControllerBase
     private readonly IEnvironmentSettingsProvider _environmentSettingsProvider;
     private readonly CompositeEndpointHandler _compositeHandler;
     private readonly SqlConnectionPoolService _connectionPoolService; 
+    private readonly Services.Caching.CacheManager _cacheManager; 
 
     /// <summary>
     /// Validates if the environment is allowed both globally and for the specific endpoint
@@ -103,7 +104,8 @@ public class EndpointController : ControllerBase
         IODataToSqlConverter oDataToSqlConverter,
         IEnvironmentSettingsProvider environmentSettingsProvider,
         CompositeEndpointHandler compositeHandler,
-        SqlConnectionPoolService connectionPoolService)
+        SqlConnectionPoolService connectionPoolService,
+        Services.Caching.CacheManager cacheManager)
     {
         _httpClientFactory = httpClientFactory;
         _urlValidator = urlValidator;
@@ -112,6 +114,7 @@ public class EndpointController : ControllerBase
         _environmentSettingsProvider = environmentSettingsProvider;
         _compositeHandler = compositeHandler;
         _connectionPoolService = connectionPoolService;
+        _cacheManager = cacheManager;
     }
 
     /// <summary>
@@ -588,9 +591,11 @@ public class EndpointController : ControllerBase
             {
                 // Create a cache key based on the request details
                 string cacheKey = CreateCacheKey(env, endpointName, remainingPath, queryString, Request.Headers);
-                                
-                // Try to get from cache first (without lock)
-                if (_proxyCache.TryGetValue(cacheKey, out ProxyCacheEntry? cacheEntry) && cacheEntry != null)
+                
+                // Try to get from cache first
+                var cacheEntry = await _cacheManager.GetAsync<Services.Caching.ProxyCacheEntry>(cacheKey);
+                
+                if (cacheEntry != null)
                 {
                     Log.Debug("📋 Cache hit for proxy request: {Endpoint}, URL: {Url}", endpointName, fullUrl);
                     
@@ -608,15 +613,21 @@ public class EndpointController : ControllerBase
                     return new EmptyResult(); // Response already written
                 }
                 
-                // Get or create a lock for this cache key
-                var cacheLock = _cacheLocks.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
+                Log.Debug("🔍 Cache miss for proxy request: {Endpoint}, URL: {Url}", endpointName, fullUrl);
                 
-                // Acquire lock to prevent duplicate requests for the same resource
-                await cacheLock.WaitAsync();
-                try
+                // Acquire a distributed lock to prevent duplicate requests
+                using var lockHandle = await _cacheManager.AcquireLockAsync(
+                    cacheKey, 
+                    TimeSpan.FromSeconds(30),
+                    TimeSpan.FromSeconds(10),
+                    TimeSpan.FromMilliseconds(200));
+                
+                if (lockHandle != null)
                 {
                     // Double-check cache after acquiring lock
-                    if (_proxyCache.TryGetValue(cacheKey, out cacheEntry) && cacheEntry != null)
+                    cacheEntry = await _cacheManager.GetAsync<Services.Caching.ProxyCacheEntry>(cacheKey);
+                    
+                    if (cacheEntry != null)
                     {
                         Log.Debug("📋 Cache hit after lock for proxy request: {Endpoint}", endpointName);
                         
@@ -634,16 +645,14 @@ public class EndpointController : ControllerBase
                         return new EmptyResult(); // Response already written
                     }
                     
-                    Log.Debug("🔍 Cache miss for proxy request: {Endpoint}, URL: {Url}", endpointName, fullUrl);
-                    
                     // Continue with normal proxy process for cache miss
                     var responseDetails = await ExecuteProxyRequest(method, fullUrl, env, endpointConfig, endpointName);
                     
                     // For successful responses, store in cache
-                    if (responseDetails.IsSuccessful)
+                    if (responseDetails.IsSuccessful && _cacheManager.ShouldCacheResponse(responseDetails.ContentType))
                     {
-                        // Determine cache duration - default to 5 minutes if not specified
-                        TimeSpan cacheDuration = TimeSpan.FromMinutes(5);
+                        // Determine cache duration - default to endpoint-specific duration
+                        TimeSpan cacheDuration = _cacheManager.GetCacheDurationForEndpoint(endpointName);
                         
                         // Check for Cache-Control max-age directive
                         if (responseDetails.Headers.TryGetValue("Cache-Control", out var cacheControl))
@@ -656,35 +665,25 @@ public class EndpointController : ControllerBase
                         }
                         
                         // Store response in cache
-                        var entry = new ProxyCacheEntry
-                        {
-                            Content = responseDetails.Content,
-                            Headers = responseDetails.Headers,
-                            StatusCode = responseDetails.StatusCode
-                        };
+                        var entry = Services.Caching.ProxyCacheEntry.Create(
+                            responseDetails.Content,
+                            responseDetails.Headers,
+                            responseDetails.StatusCode);
                         
-                        var cacheOptions = new MemoryCacheEntryOptions()
-                            .SetAbsoluteExpiration(cacheDuration)
-                            .RegisterPostEvictionCallback((key, value, reason, state) => 
-                            {
-                                // Clean up the lock when the cache entry is removed
-                                if (_cacheLocks.TryRemove((string)key, out var _))
-                                {
-                                    Log.Debug("🧹 Removed lock for expired cache entry: {Key}", key);
-                                }
-                            });
+                        await _cacheManager.SetAsync(cacheKey, entry, cacheDuration);
                         
-                        _proxyCache.Set(cacheKey, entry, cacheOptions);
                         Log.Debug("💾 Cached proxy response for: {Endpoint} ({Duration} seconds)", 
                             endpointName, cacheDuration.TotalSeconds);
                     }
-                    
-                    return new EmptyResult(); // Response already written
                 }
-                finally
+                else
                 {
-                    cacheLock.Release();
+                    // If we couldn't acquire a lock, just execute the request without caching
+                    Log.Warning("⏱️ Could not acquire lock for caching: {Endpoint}", endpointName);
+                    await ExecuteProxyRequest(method, fullUrl, env, endpointConfig, endpointName);
                 }
+                
+                return new EmptyResult(); // Response already written
             }
             else
             {
@@ -721,7 +720,7 @@ public class EndpointController : ControllerBase
     private string CreateCacheKey(string env, string endpointName, string path, string queryString, IHeaderDictionary headers)
     {
         var keyBuilder = new StringBuilder();
-        keyBuilder.Append($"{env}:{endpointName}:{path}:{queryString}");
+        keyBuilder.Append($"proxy:{env}:{endpointName}:{path}:{queryString}");
         
         // Include authorization to differentiate between users if needed
         if (headers.TryGetValue("Authorization", out var authValues))
@@ -747,7 +746,7 @@ public class EndpointController : ControllerBase
     /// <summary>
     /// Executes the actual proxy request and writes the response
     /// </summary>
-    private async Task<(bool IsSuccessful, string Content, Dictionary<string, string> Headers, int StatusCode)> ExecuteProxyRequest(
+    private async Task<(bool IsSuccessful, string Content, Dictionary<string, string> Headers, int StatusCode, string? ContentType)> ExecuteProxyRequest(
         string method, string fullUrl, string env, 
         (string Url, HashSet<string> Methods, bool IsPrivate, string Type) endpointConfig,
         string endpointName,
@@ -886,6 +885,13 @@ public class EndpointController : ControllerBase
             ? await response.Content.ReadAsStringAsync()
             : string.Empty;
 
+        // Extract content type
+        string? contentType = null;
+        if (response.Content?.Headers?.ContentType != null)
+        {
+            contentType = response.Content.Headers.ContentType.ToString();
+        }
+
         // For SOAP responses, skip URL rewriting
         string rewrittenContent;
         if (isSoapRequest)
@@ -899,6 +905,7 @@ public class EndpointController : ControllerBase
                 {
                     Response.Headers["Content-Type"] = "text/xml; charset=utf-8";
                     responseHeaders["Content-Type"] = "text/xml; charset=utf-8";
+                    contentType = "text/xml; charset=utf-8";
                 }
             }
         }
@@ -910,7 +917,7 @@ public class EndpointController : ControllerBase
                 Log.Warning("❌ Could not parse endpoint URL as URI: {Url}", endpointConfig.Url);
                 Response.StatusCode = 500;
                 await Response.WriteAsync("Error processing request");
-                return (false, string.Empty, responseHeaders, 500);
+                return (false, string.Empty, responseHeaders, 500, null);
             }
 
             var originalHost = $"{originalUri.Scheme}://{originalUri.Host}:{originalUri.Port}";
@@ -939,7 +946,8 @@ public class EndpointController : ControllerBase
             response.IsSuccessStatusCode, 
             rewrittenContent, 
             responseHeaders, 
-            (int)response.StatusCode
+            (int)response.StatusCode,
+            contentType
         );
     }
 

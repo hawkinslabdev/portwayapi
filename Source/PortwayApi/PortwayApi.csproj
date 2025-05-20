@@ -29,6 +29,7 @@
     <!-- OData & SQL Querying -->
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="DynamicODataToSQL" Version="2.1.0" />
+    <PackageReference Include="Polly" Version="8.5.2" />
     <PackageReference Include="SqlKata" Version="2.4.0" />
     <PackageReference Include="SqlKata.Execution" Version="2.4.0" />
     <PackageReference Include="Microsoft.OData.Core" Version="7.21.4" />
@@ -42,6 +43,7 @@
 
     <!-- Azure -->
     <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.7.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.8.37" />
 
     <!-- Swagger -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="8.1.1" />

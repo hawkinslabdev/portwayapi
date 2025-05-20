@@ -15,6 +15,7 @@ using PortwayApi.Helpers;
 using PortwayApi.Interfaces;
 using PortwayApi.Middleware;
 using PortwayApi.Services;
+using PortwayApi.Services.Caching; // Add this for caching services
 using System.Text;
 using System.Text.Json;
 using System.Net;
@@ -126,6 +127,10 @@ try
         options.SizeLimit = 1024 * 1024 * 10; // 10 MB
         options.MaximumBodySize = 1024 * 1024 * 10; // 10 MB
     });
+    
+    // Add caching services (Redis and/or memory cache)
+    builder.Services.AddCachingServices(builder.Configuration);
+    
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddRequestTrafficLogging(builder.Configuration);
     builder.Services.AddHttpContextAccessor();
@@ -319,6 +324,21 @@ try
         catch (Exception ex)
         {
             Log.Error("❌ Database initialization failed: {Message}", ex.Message);
+        }
+    }
+
+    // Log cache configuration
+    using (var scope = app.Services.CreateScope())
+    {
+        try
+        {
+            var cacheManager = scope.ServiceProvider.GetRequiredService<CacheManager>();
+            Log.Information("🧠 Cache configured with provider: {ProviderType}", cacheManager.ProviderType);
+            Log.Information("🔄 Cache connection status: {Status}", cacheManager.IsConnected ? "Connected" : "Disconnected");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error initializing cache manager");
         }
     }
 

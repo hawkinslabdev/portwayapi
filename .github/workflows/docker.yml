@@ -20,7 +20,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v4
       with:
-        images: ghcr.io/hawkinslabdev/portwayapi
+        images: ghcr.io/melosso/portwayapi
         tags: |
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}

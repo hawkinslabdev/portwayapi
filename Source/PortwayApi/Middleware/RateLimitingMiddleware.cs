@@ -49,11 +49,10 @@ public class TokenBucket
             bucketId, capacity, refillTime.TotalSeconds);
     }
 
-    public bool TryConsume(int tokenCount, Microsoft.Extensions.Logging.ILogger logger)
+    public bool TryConsume(int tokenCount, Microsoft.Extensions.Logging.ILogger? logger)
     {
         lock (_syncLock)
         {
-            var now = DateTime.UtcNow;
             var requestNum = Interlocked.Increment(ref _requestCount);
             
             RefillTokens(logger);
@@ -61,12 +60,16 @@ public class TokenBucket
             if (_tokens >= tokenCount)
             {
                 _tokens -= tokenCount;
-                logger.LogDebug("Request #{RequestNum} for {BucketId} ALLOWED", requestNum, _bucketId);
+                if (logger != null)
+                {
+                    logger.LogDebug("Request #{RequestNum} for {BucketId} ALLOWED", requestNum, _bucketId);
+                }
                 return true;
             }
 
             // Suppress repeated logging for the same bucket
-            if (now - _lastLoggedBlockTime >= _logSuppressDuration)
+            var now = DateTime.UtcNow;
+            if (logger != null && (now - _lastLoggedBlockTime) >= _logSuppressDuration)
             {
                 logger.LogWarning(
                     "Request #{RequestNum} for {BucketId} BLOCKED - Tokens: {Tokens:F2}/{Capacity} < {TokenCount}", 
@@ -85,7 +88,32 @@ public class TokenBucket
         }
     }
 
-    private void RefillTokens(Microsoft.Extensions.Logging.ILogger logger)
+    public int GetRemainingTokens()
+    {
+        lock (_syncLock)
+        {
+            RefillTokens(null); // Ensure tokens are up-to-date before reporting
+            return (int)Math.Floor(_tokens);
+        }
+    }
+
+    public int GetCapacity()
+    {
+        return _capacity;
+    }
+
+    public DateTime GetResetTime()
+    {
+        lock (_syncLock)
+        {
+            RefillTokens(null);
+            // Calculate when tokens will fully replenish
+            var secondsToFull = (_capacity - _tokens) * _refillTime.TotalSeconds / _capacity;
+            return DateTime.UtcNow.AddSeconds(secondsToFull);
+        }
+    }
+
+    private void RefillTokens(Microsoft.Extensions.Logging.ILogger? logger)
     {
         var now = DateTime.UtcNow;
         var elapsed = (now - _lastRefill).TotalSeconds;
@@ -96,7 +124,7 @@ public class TokenBucket
         // Calculate tokens to add based on elapsed time
         var tokensToAdd = elapsed * (_capacity / _refillTime.TotalSeconds);
         
-        if (tokensToAdd > 0.01) // Only log meaningful refills
+        if (tokensToAdd > 0.01 && logger != null) // Only log meaningful refills
         {
             logger.LogDebug("🔄 Refilling tokens for {BucketId}: +{TokensToAdd:F2} after {Elapsed:F2}s", 
                 _bucketId, tokensToAdd, elapsed);
@@ -187,7 +215,7 @@ public class RateLimiter
             if (now < blockInfo.BlockedUntil)
             {
                 // Only log if enough time has passed since last log for this IP
-                bool shouldLog = (now - blockInfo.LastLogged) >= _logCooldown;
+                bool shouldLog = (now - blockInfo.LastLogged) >= _logSuppressDuration;
                 
                 if (shouldLog)
                 {
@@ -232,6 +260,7 @@ public class RateLimiter
         bool requiresAuth = true;
         bool authenticated = false;
         string? token = null;
+        TokenBucket? tokenBucket = null;
         
         if (context.Request.Headers.TryGetValue("Authorization", out var authHeader) && 
             authHeader.ToString().StartsWith("Bearer "))
@@ -280,7 +309,7 @@ public class RateLimiter
                 }
             }
             
-            var tokenBucket = _buckets.GetOrAdd(tokenKey, key => 
+            tokenBucket = _buckets.GetOrAdd(tokenKey, key => 
                 CreateBucket(key, _settings.TokenLimit, _settings.TokenWindow, "TOKEN"));
             
             bool tokenAllowed = tokenBucket.TryConsume(1, _logger);
@@ -323,6 +352,9 @@ public class RateLimiter
                 context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
                 context.Response.ContentType = "application/json";
                 context.Response.Headers.Append("Retry-After", retryAfterSeconds.ToString());
+                
+                // Add rate limit headers
+                AddRateLimitHeaders(context.Response, tokenBucket, "token");
 
                 var options = new JsonSerializerOptions
                 {
@@ -351,10 +383,25 @@ public class RateLimiter
             }
         }
         
+        // Add rate limit headers to successful responses
+        context.Response.OnStarting(() =>
+        {
+            // Add rate limit headers based on the most restrictive bucket
+            if (tokenBucket != null)
+            {
+                AddRateLimitHeaders(context.Response, tokenBucket, "token");
+            }
+            else
+            {
+                AddRateLimitHeaders(context.Response, ipBucket, "ip");
+            }
+            
+            return Task.CompletedTask;
+        });
+        
         await _next(context);
     }
 
-    // Create initial block info
     private BlockInfo CreateBlockInfo(DateTime now)
     {
         return new BlockInfo
@@ -386,13 +433,35 @@ public class RateLimiter
             BlockDuration = newBlockDuration
         };
     }
+    private void AddRateLimitHeaders(HttpResponse response, TokenBucket bucket, string resourceName)
+    {
+        int limit = bucket.GetCapacity();
+        int remaining = bucket.GetRemainingTokens();
+        long resetTimestamp = new DateTimeOffset(bucket.GetResetTime()).ToUnixTimeSeconds();
+        int used = limit - remaining;
+        
+        response.Headers["X-RateLimit-Limit"] = limit.ToString();
+        response.Headers["X-RateLimit-Remaining"] = remaining.ToString();
+        response.Headers["X-RateLimit-Reset"] = resetTimestamp.ToString();
+        response.Headers["X-RateLimit-Resource"] = resourceName;
+        response.Headers["X-RateLimit-Used"] = used.ToString();
+        response.Headers["X-XSS-Protection"] = "0";
+    }
     
     private async Task RespondWithRateLimit(HttpContext context, string identifier, int retryAfterSeconds, bool log)
     {
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         context.Response.ContentType = "application/json";
         context.Response.Headers.Append("Retry-After", retryAfterSeconds.ToString());
-
+        
+        // Add rate limit headers if we have the bucket
+        string bucketKey = identifier.StartsWith("token:") ? identifier : $"ip:{identifier}";
+        if (_buckets.TryGetValue(bucketKey, out var bucket))
+        {
+            string resourceType = identifier.StartsWith("token:") ? "token" : "ip";
+            AddRateLimitHeaders(context.Response, bucket, resourceType);
+        }
+        
         var retryTime = DateTimeOffset.UtcNow.AddSeconds(retryAfterSeconds).ToString("o");
 
         if (log)
@@ -416,7 +485,6 @@ public class RateLimiter
 
         await context.Response.WriteAsync(JsonSerializer.Serialize(errorObject, options));
     }
-
     private TokenBucket CreateBucket(string key, int limit, int windowSeconds, string type)
     {
         string MaskKey(string key, int visibleChars = 4, char maskChar = '*')

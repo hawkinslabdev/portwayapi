@@ -14,6 +14,7 @@ using PortwayApi.Classes;
 using PortwayApi.Helpers;
 using PortwayApi.Interfaces;
 using PortwayApi.Services;
+using PortwayApi.Services.Files;
 using Serilog;
 
 namespace PortwayApi.Api;

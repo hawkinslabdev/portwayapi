@@ -25,11 +25,13 @@
           "Microsoft.OData.Core": "7.21.4",
           "Microsoft.OData.Edm": "7.21.4",
           "Microsoft.OData.ModelBuilder": "1.0.9",
+          "Polly": "8.5.2",
           "Serilog.AspNetCore": "9.0.0",
           "Serilog.Sinks.Console": "6.0.0",
           "Serilog.Sinks.File": "6.0.0",
           "SqlKata": "2.4.0",
           "SqlKata.Execution": "2.4.0",
+          "StackExchange.Redis": "2.8.37",
           "Swashbuckle.AspNetCore": "8.1.1"
         },
         "runtime": {
@@ -913,6 +915,36 @@
           "System.CodeDom": "6.0.0"
         }
       },
+      "Pipelines.Sockets.Unofficial/2.2.8": {
+        "dependencies": {
+          "System.IO.Pipelines": "9.0.4"
+        },
+        "runtime": {
+          "lib/net5.0/Pipelines.Sockets.Unofficial.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "2.2.8.1080"
+          }
+        }
+      },
+      "Polly/8.5.2": {
+        "dependencies": {
+          "Polly.Core": "8.5.2"
+        },
+        "runtime": {
+          "lib/net6.0/Polly.dll": {
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.5.2.4319"
+          }
+        }
+      },
+      "Polly.Core/8.5.2": {
+        "runtime": {
+          "lib/net8.0/Polly.Core.dll": {
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.5.2.4319"
+          }
+        }
+      },
       "Serilog/4.2.0": {
         "runtime": {
           "lib/net8.0/Serilog.dll": {
@@ -1186,6 +1218,18 @@
           "lib/netstandard2.0/SqlKata.Execution.dll": {
             "assemblyVersion": "2.4.0.0",
             "fileVersion": "2.4.0.0"
+          }
+        }
+      },
+      "StackExchange.Redis/2.8.37": {
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "9.0.4",
+          "Pipelines.Sockets.Unofficial": "2.2.8"
+        },
+        "runtime": {
+          "lib/net8.0/StackExchange.Redis.dll": {
+            "assemblyVersion": "2.0.0.0",
+            "fileVersion": "2.8.37.59676"
           }
         }
       },
@@ -2137,6 +2181,27 @@
       "path": "mono.texttemplating/3.0.0",
       "hashPath": "mono.texttemplating.3.0.0.nupkg.sha512"
     },
+    "Pipelines.Sockets.Unofficial/2.2.8": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-zG2FApP5zxSx6OcdJQLbZDk2AVlN2BNQD6MorwIfV6gVj0RRxWPEp2LXAxqDGZqeNV1Zp0BNPcNaey/GXmTdvQ==",
+      "path": "pipelines.sockets.unofficial/2.2.8",
+      "hashPath": "pipelines.sockets.unofficial.2.2.8.nupkg.sha512"
+    },
+    "Polly/8.5.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-vbXsGgkG86nG+TOwY+SmtrGrRHmHH0DQaxtILx//d3Dz/ocJ8izSNYzdvU2gEtWa/LDD8zJLvD3HdjEkdlvkhg==",
+      "path": "polly/8.5.2",
+      "hashPath": "polly.8.5.2.nupkg.sha512"
+    },
+    "Polly.Core/8.5.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-1MJKdxv4zwDmiWvYvVN24DsrWUfgQ4F83voH8bhbtLMdPuGy8CfTUzsgQhvyrl1a7hrM6f/ydwLVdVUI0xooUw==",
+      "path": "polly.core/8.5.2",
+      "hashPath": "polly.core.8.5.2.nupkg.sha512"
+    },
     "Serilog/4.2.0": {
       "type": "package",
       "serviceable": true,
@@ -2241,6 +2306,13 @@
       "sha512": "sha512-Sen4PQZpWitW7p8d9lbNggCVkwoIBSDqo1ZVqY5UjjRzmNJLHmFvATkqYd+ZemaMZnjjMba+a5nMIyS0uWSFeA==",
       "path": "sqlkata.execution/2.4.0",
       "hashPath": "sqlkata.execution.2.4.0.nupkg.sha512"
+    },
+    "StackExchange.Redis/2.8.37": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-ULscDAQR+z132IsLczXcM/PG+EyfQMNxhvqjG1Xd/h/J1O9prsUU4pG9d95xv77lUF8v3X6owpf/11Uh0uvZAQ==",
+      "path": "stackexchange.redis/2.8.37",
+      "hashPath": "stackexchange.redis.2.8.37.nupkg.sha512"
     },
     "Swashbuckle.AspNetCore/8.1.1": {
       "type": "package",

@@ -123,11 +123,11 @@ public class RedisCacheHealthCheck : IHealthCheck
                         }
                     }
                     
-                    serverInfo[endpoint.ToString()] = serverData;
+                    serverInfo[endpoint?.ToString() ?? "unknown"] = serverData;
                 }
                 else
                 {
-                    serverInfo[endpoint.ToString()] = "Not connected";
+                    serverInfo[endpoint?.ToString() ?? "unknown"] = "Not connected";
                 }
             }
 

@@ -11,17 +11,18 @@ A quick example to give you an idea of what this is all about:
 ![Screenshot of Swagger UI](https://github.com/melosso/portway/blob/main/Source/example.png?raw=true)
 
 ## 🚀 Features
-- **Multiple Endpoint Types**
+- **Various endpoint types**
   
   We support various endpoint types. You can connect your internal webservices and expose specific endpoints; or you can expose your database directly for specific tables, schema's and/or fields.
-  - 🗄️ **Microsoft SQL Server**: Direct SQL Server data access with OData support. This now supports POST requests!
-  - 🔀 **Proxy service**: Forward requests to internal services with authentication. This now supports chaining, to combine multiple operations in a single request. Call the "Line" endpoint before the "Header", all from one request!
-  - 📥 **Webhook**: Process incoming webhooks and store data, directly into your database.
-- 🔐 **Secure authentication**: Token-based auth with Azure Key Vault support.
-- 🌍 **Environment Awareness** Route to different environments (test, production, etc.).
-- 📊 **Automatic documentation**: Swagger UI for all endpoints.
-- 📝 **Detailed logging**: Comprehensive request/response tracking. This now supports tracing live data coming in!
-- 🔄 **Rate limiting**: Protect services from overload, which is easy to configure.
+  - **Microsoft SQL Server**: Direct SQL Server data access with OData support (CRUD).
+  - **Proxy service**: Forward requests to internal services. It'll allow you to combine multiple operations in a single request.
+  - **File System**: Handle local files directly from persistent storage and/or distributed cache.
+  - **Webhook**: Process incoming webhooks and store data, directly into your database.
+- **Secure authentication**: Token-based auth with Azure Key Vault support.
+- **Environment awareness** Route to different environments (test, production, etc.).
+- **Automatic documentation**: Swagger UI for all endpoints.
+- **Detailed logging**: Comprehensive request/response tracking. This now supports tracing live data coming in!
+- **Rate limiting**: Protect services from overload, which is easy to configure.
 
 ## 📦 Requirements
 - [.NET 8+ ASP.NET Core Runtime](https://dotnet.microsoft.com/en-us/download)

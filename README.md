@@ -25,7 +25,7 @@ A quick example to give you an idea of what this is all about:
 - **Rate limiting**: Protect services from overload, which is easy to configure.
 
 ## 📦 Requirements
-- [.NET 8+ ASP.NET Core Runtime](https://dotnet.microsoft.com/en-us/download)
+- [.NET 9+ ASP.NET Core Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/9.0)
 - Internet Information Services (for production)
 - SQL Server database access (for SQL endpoints)
 - Local write access for logs and configuration

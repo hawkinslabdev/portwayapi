@@ -38,9 +38,9 @@ Portway implements comprehensive logging using Serilog, providing detailed insig
 🌎 Environment: Production
 🖥️ Host: SERVER-01
 💾 Working Directory: C:\PortwayApi
-⏰ Current Time: 2024-01-20 10:30:00
-🔧 .NET Version: 8.0.0
-💻 OS: Microsoft Windows 10.0.22631
+⏰ Current Time: 2025-05-20 10:30:00
+🔧 .NET Version: 9.0.0
+💻 OS: Microsoft Windows 10.0.x
 ```
 
 ### API Request Logging

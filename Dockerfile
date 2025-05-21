@@ -2,7 +2,7 @@
 # Enable BuildKit features for better performance
 
 # Stage 1: Build the application
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
 # Copy only project files first to leverage Docker layer caching for dependencies

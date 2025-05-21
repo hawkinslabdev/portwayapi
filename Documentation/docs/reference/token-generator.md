@@ -6,7 +6,7 @@ The Token Generator is a command-line utility for creating and managing authenti
 
 ### Prerequisites
 
-- .NET 8.0 Runtime
+- .NET 9.0 Runtime (which is available in the Hosting Bundle)
 - Access to the auth.db file
 - Write permissions to the tokens directory
 

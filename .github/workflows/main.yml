@@ -68,8 +68,10 @@ jobs:
         NEW_TAG=${{ steps.versioning.outputs.new_version }}
         # Create version file inside the Deployment folder
         echo "$NEW_TAG" > Deployment/version.txt
-        # Remove any docker-compose.yml files from the Deployment folder
+        # Remove unwanted files from the Deployment folder
         find Deployment -name "docker-compose.yml" -type f -delete
+        find Deployment -name ".gitignore" -type f -delete
+        find Deployment -name ".dockerignore" -type f -delete
         # Zip the Deployment folder
         zip -r "${NEW_TAG}-Deployment.zip" Deployment
     - name: Create GitHub Release

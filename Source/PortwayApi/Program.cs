@@ -293,7 +293,9 @@ try
     {
         DefaultFileNames = new List<string> { "index.html" }
     });
-    app.UseStaticFiles();
+    
+    // Optimize the handling of static files by replacing UseStaticFiles with MapStaticAssets, as suggested in the .NET 9.0 migration strategy
+    app.MapStaticAssets(); 
     
     // Configure Swagger UI using our centralized configuration
     SwaggerConfiguration.ConfigureSwaggerUI(app, swaggerSettings);

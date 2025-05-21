@@ -85,18 +85,6 @@ public class StartupLogger : IHostedService
                 Log.Information("🌍 Allowed Environments: {Environments}", string.Join(", ", environments));
             }
 
-            // Log endpoint counts
-            var endpointsDir = Path.Combine(Directory.GetCurrentDirectory(), "endpoints");
-            var sqlEndpointsCount = Directory.Exists(Path.Combine(endpointsDir, "SQL")) 
-                ? Directory.GetDirectories(Path.Combine(endpointsDir, "SQL")).Length 
-                : 0;
-                
-            var proxyEndpointsCount = Directory.Exists(Path.Combine(endpointsDir, "Proxy")) 
-                ? Directory.GetDirectories(Path.Combine(endpointsDir, "Proxy")).Length 
-                : 0;
-                
-            Log.Information("📊 Endpoints: {SqlCount} SQL, {ProxyCount} Proxy", sqlEndpointsCount, proxyEndpointsCount);
-            
             // Log rate limiting status
             var rateLimitingEnabled = _configuration.GetValue<bool>("RateLimiting:Enabled", false);
             if (rateLimitingEnabled)

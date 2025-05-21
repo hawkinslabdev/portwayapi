@@ -375,39 +375,11 @@ try
     var environmentSettings = app.Services.GetRequiredService<EnvironmentSettings>();
     var sqlEnvironmentProvider = app.Services.GetRequiredService<IEnvironmentSettingsProvider>();
 
-    // Log loaded proxy endpoints
-    foreach (var entry in proxyEndpointMap)
-    {
-        string endpointName = entry.Key;
-        var (url, methods, isPrivate, type) = entry.Value;
-        
-        if (isPrivate)
-        {
-            Log.Information($"🔒 Private Endpoint: {endpointName}; Proxy URL: {url}, Methods: {string.Join(", ", methods)}");
-        }
-        else if (type.Equals("Composite", StringComparison.OrdinalIgnoreCase))
-        {
-            Log.Information($"🧩 Composite Endpoint: {endpointName}; Proxy URL: {url}, Methods: {string.Join(", ", methods)}");
-        }
-        else
-        {
-            Log.Information($"✅ Proxy Endpoint: {endpointName}; Proxy URL: {url}, Methods: {string.Join(", ", methods)}");
-        }
-    }
-
-    // Log loaded SQL endpoints
     var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
-    foreach (var endpoint in sqlEndpoints)
-    {
-        Log.Information($"📊 SQL Endpoint: {endpoint.Key}; Object: {endpoint.Value.DatabaseSchema}.{endpoint.Value.DatabaseObjectName}");
-    }
-
-    // Log Loaded Webhook endpoint
     var webhookEndpoints = EndpointHandler.GetSqlWebhookEndpoints();
-    foreach (var endpoint in webhookEndpoints)
-    {
-        Log.Information($"🔔 Webhook Endpoint: {endpoint.Key} available");
-    }
+    var fileEndpoints = EndpointHandler.GetFileEndpoints();
+
+    EndpointSummaryHelper.LogEndpointSummary(sqlEndpoints, proxyEndpointMap, webhookEndpoints, fileEndpoints);
 
     // Use Rate Limiting middleware
     PortwayApi.Middleware.RateLimiterExtensions.UseRateLimiter(app);
@@ -496,7 +468,9 @@ try
             ?? builder.Configuration["urls"]
             ?? "http://localhost:5000";
         
-        Log.Information("🌐 Application is hosted on: {Urls}", serverUrls);
+        // Add a space after each ; in serverUrls for better readability
+        var formattedUrls = serverUrls.Replace(";", "; ");
+        Log.Information("🌐 Application is hosted on: {Urls}", formattedUrls);
     }
 
     // Register application shutdown handler
@@ -542,3 +516,4 @@ public static class RateLimitingExtensions
         return services;
     }
 }
+

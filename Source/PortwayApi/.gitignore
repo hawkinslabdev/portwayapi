@@ -72,7 +72,6 @@ auth.db-wal
 
 # User-specific files
 appsettings.local.json
-launchSettings.json
 
 # Sensitive or environment-specific settings
 environments/*/secrets.json

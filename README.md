@@ -1,46 +1,54 @@
-# <img src="https://github.com/melosso/portway/blob/main/Source/logo.webp?raw=true" alt="" width="34" style="vertical-align: middle;">  Portway
+# <img src="https://github.com/melosso/portway/blob/main/Source/logo.webp?raw=true" alt="" width="34" style="vertical-align: middle;">  Portway
 
-A powerful, lightweight API gateway built for Windows Server. You can use it for granular safe SQL Server data access, and/or service proxying with environment awareness.
+**Portway** is a fast, lightweight API gateway optimized for Windows Server environments. It offers fine-grained access to SQL Server data and flexible service proxying — with full environment-awareness, secure auth, and automatic documentation.
 
-* 🌐 [Visit the landing page](https://portway.melosso.com/)
-* 🚀 [Launch the demo site](https://portway-demo.melosso.com/)
-* ⬇️ [Download the latest release](https://github.com/melosso/portway/releases/)
+> 📍 [Landing Page](https://portway.melosso.com/) | 🧪 [Live Demo](https://portway-demo.melosso.com/)
 
 A quick example to give you an idea of what this is all about:
 
 ![Screenshot of Swagger UI](https://github.com/melosso/portway/blob/main/Source/example.png?raw=true)
 
-## 🚀 Features
-- **Various endpoint types**
-  
-  We support various endpoint types. You can connect your internal webservices and expose specific endpoints; or you can expose your database directly for specific tables, schema's and/or fields.
-  - **Microsoft SQL Server**: Direct SQL Server data access with OData support (CRUD).
-  - **Proxy service**: Forward requests to internal services. It'll allow you to combine multiple operations in a single request.
-  - **File System**: Handle local files directly from persistent storage and/or distributed cache.
-  - **Webhook**: Process incoming webhooks and store data, directly into your database.
-- **Secure authentication**: Token-based auth with Azure Key Vault support.
-- **Environment awareness** Route to different environments (test, production, etc.).
-- **Automatic documentation**: Swagger UI for all endpoints.
-- **Detailed logging**: Comprehensive request/response tracking. This now supports tracing live data coming in!
-- **Rate limiting**: Protect services from overload, which is easy to configure.
+## 🧩 Key Features
 
-## 📦 Requirements
-- [.NET 9+ ASP.NET Core Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/9.0)
-- Internet Information Services (for production)
-- SQL Server database access (for SQL endpoints)
-- Local write access for logs and configuration
+Portway is built with flexibility and control in mind. Whether you're proxying services or exposing SQL endpoints, Portway adapts to your infrastructure with secure, high-performance routing.
 
----
+* **Multiple endpoint types**:
 
-## 🛠️ Setup
+  * **SQL Server (OData)** — direct CRUD access with schema-level control
+  * **Proxy** — forward to internal services; supports complex orchestration
+  * **File System** — read/write from local storage or cache
+  * **Webhook** — receive external calls and persist data to SQL
+* **Auth system**: Token-based, with Azure Key Vault integration
+* **Environment-aware routing**: Dev, staging, production — all isolated and configurable
+* **Built-in Swagger**: Every endpoint is documented out-of-the-box
+* **Comprehensive logging**: Request/response tracing, including live monitoring
+* **Rate limiting**: Easy to configure; protects downstream systems
 
-### 1. Download the release
-Download the latest release from the releases section and extract it to your desired location.
+## ⚙️ Requirements
 
-### 2. Configure environments
-Configure the main settings file, as well as each settings file for each environment:
+Before deploying Portway, make sure your environment meets the following requirements. These ensure full functionality across all features, especially SQL and authentication.
+
+* [.NET 9+ Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/9.0)
+* IIS (production hosting) if hosting on Windows
+* SQL Server access (for SQL endpoints)
+* Local filesystem access for configuring/running the application
+
+Ready to go? Then continue:
+
+## 🚀 Getting Started
+
+Follow these steps to get Portway up and running in your environment. Setup is fast and modular, making it easy to configure just what you need.
+
+### 1. Download & Extract
+
+Grab the [latest release](https://github.com/melosso/portway/releases) and extract it to your deployment folder.
+
+### 2. Configure Your Environments
+
+Define your server and environment settings to isolate dev/staging/prod as needed. These configs are used across endpoints and logging.
 
 **`environments/settings.json`**
+
 ```json
 {
   "Environment": {
@@ -51,6 +59,7 @@ Configure the main settings file, as well as each settings file for each environ
 ```
 
 **`environments/prod/settings.json`**
+
 ```json
 {
   "ServerName": "localhost",
@@ -58,34 +67,40 @@ Configure the main settings file, as well as each settings file for each environ
 }
 ```
 
-### 3. Configure endpoints
+### 3. Define Your Endpoints
 
-#### SQL Endpoint
-**`endpoints/SQL/Products/entity.json`**
+Endpoints are configured as JSON files. Each type has its own directory and format, making them easy to manage and extend.
+
+#### SQL Endpoint — `endpoints/SQL/Products/entity.json`
+
+Exposes a SQL table with restricted columns and CRUD operations.
+
 ```json
 {
   "DatabaseObjectName": "Items",
   "DatabaseSchema": "dbo",
   "PrimaryKey": "ItemCode",
-  "AllowedColumns": [
-    "ItemCode","Description","Assortment","sysguid"
-  ],
-  "AllowedEnvironments": ["prod","dev"]
+  "AllowedColumns": ["ItemCode", "Description", "Assortment", "sysguid"],
+  "AllowedEnvironments": ["prod", "dev"]
 }
 ```
 
-#### Proxy Endpoint
-**`endpoints/Proxy/Accounts/entity.json`**
+#### Proxy Endpoint — `endpoints/Proxy/Accounts/entity.json`
+
+Acts as a reverse proxy for internal services with full method control.
+
 ```json
-{ 
-  "Url": "http://localhost:8020/services/Exact.Entity.REST.EG/Account", 
-  "Methods": ["GET", "POST", "PUT", "DELETE","MERGE"],
-  "AllowedEnvironments": ["prod","dev"]
+{
+  "Url": "http://localhost:8020/services/Exact.Entity.REST.EG/Account",
+  "Methods": ["GET", "POST", "PUT", "DELETE", "MERGE"],
+  "AllowedEnvironments": ["prod", "dev"]
 }
 ```
 
-#### Composite Endpoint
-**`endpoints/Proxy/SalesOrder/entity.json`**
+#### Composite Endpoint — `endpoints/Proxy/SalesOrder/entity.json`
+
+Combines multiple calls into a single logical transaction for APIs requiring sequential or nested operations.
+
 ```json
 {
   "Type": "Composite",
@@ -93,7 +108,7 @@ Configure the main settings file, as well as each settings file for each environ
   "Methods": ["POST"],
   "CompositeConfig": {
     "Name": "SalesOrder",
-    "Description": "Creates a complete sales order with multiple order lines and a header",
+    "Description": "Creates a complete sales order with multiple lines and header",
     "Steps": [
       {
         "Name": "CreateOrderLines",
@@ -119,89 +134,96 @@ Configure the main settings file, as well as each settings file for each environ
 }
 ```
 
-#### Webhook Endpoint
-**`endpoints/Webhooks/entity.json`**
+#### Webhook Endpoint — `endpoints/Webhooks/entity.json`
+
+Used for receiving and storing webhook payloads directly into your database.
+
 ```json
 {
   "DatabaseObjectName": "WebhookData",
   "DatabaseSchema": "dbo",
-  "AllowedColumns": [
-    "webhook1",
-    "webhook2"
-  ]
+  "AllowedColumns": ["webhook1", "webhook2"]
 }
 ```
 
-### 4. Run the application
+### 4. Deploy
 
-Configure the application as a website in Internet Information Services. Note, if you're going to use the proxy make sure to change the application identity. Make sure to modify your application pool and website settings, for optimal uptime and security policies. E.g. for more information check [Security Headers by Probely](https://securityheaders.com/)
+Host the app in IIS. For proxy usage, configure the correct identity. Ensure your app pool and security settings are production-ready. Note, if you're going to use the proxy make sure to change the application identity. Make sure to modify your application pool and website settings, for optimal uptime and security policies. E.g. for more information check [Security Headers by Probely](https://securityheaders.com/)
 
----
+## 🔐 Auth & Security
 
-## 👮 Secure Authentication
-- On first run, a SQLite database `auth.db` will be created with an enhanced security model
-- The system automatically generates a token bound to the machine name:
-  ```text
-  🗝️ Generated token for SERVER-1: <your-token>
-  💾 Token saved to: /tokens/SERVER-1.txt
-  ```
-- Include the token in requests as:
-  ```http
-  Authorization: Bearer YOUR_TOKEN
-  ```
+### Token-Based Auth (Local)
 
-## 🗝️ Azure Key Vault Integration
-Set the KEYVAULT_URI environment variable to your Key Vault's URI, and create secrets following the {environment}-ConnectionString and {environment}-ServerName naming convention.
+Portway uses a lightweight token-based system for authentication. Tokens are machine-bound and stored securely on disk.
+
+```bash
+🗝️ Generated token for SERVER-1: <your-token>
+💾 Saved to /tokens/SERVER-1.txt
+```
+
+Include the token in request headers:
+
+```http
+Authorization: Bearer YOUR_TOKEN
+```
+
+### Azure Key Vault Support
+
+To centralize and secure configuration secrets, use Azure Key Vault. Portway can read secrets automatically by environment.
 
 ```powershell
 $env:KEYVAULT_URI = "https://your-keyvault-name.vault.azure.net/"
 ```
 
----
+Secrets format: `{env}-ConnectionString` and `{env}-ServerName`
 
-## 🔄 API Usage
+## 📡 API Examples
 
-### SQL Endpoints
+Here are some common requests you'll make using Portway's endpoints.
+
+### SQL
+
+Query specific data with full OData support:
+
 ```http
 GET /api/prod/Products?$filter=Assortment eq 'Books'&$select=ItemCode,Description
 ```
 
-### Proxy Endpoints
+### Proxy
+
+Forward calls to internal REST services:
+
 ```http
 GET /api/prod/Accounts
 POST /api/prod/Accounts
 ```
 
-### Composite Endpoints
+### Composite
+
+Chain together multiple operations into one:
+
 ```http
 POST /api/prod/composite/SalesOrder
 Content-Type: application/json
-
 {
   "Header": {
     "OrderDebtor": "60093",
     "YourReference": "Connect async"
   },
   "Lines": [
-    {
-      "Itemcode": "BEK0001",
-      "Quantity": 2,
-      "Price": 0
-    },
-    {
-      "Itemcode": "BEK0002",
-      "Quantity": 4,
-      "Price": 0
-    }
+    { "Itemcode": "BEK0001", "Quantity": 2, "Price": 0 },
+    { "Itemcode": "BEK0002", "Quantity": 4, "Price": 0 }
   ]
 }
 ```
 
-### Webhook Endpoints
+### Webhooks
+
+Receive data from external services:
+
 ```http
 POST /api/prod/webhook/webhook1
 Content-Type: application/json
-
 {
   "eventType": "order.created",
   "data": {
@@ -211,31 +233,30 @@ Content-Type: application/json
 }
 ```
 
-## 📅 Logging
-- Logs are stored in the `/log` folder and rotate daily.
-- Console output includes timestamps.
-- Authentication events are logged for auditing purposes.
+## 📊 Logging & Monitoring
 
-## 🔒 Security Model
-The authentication system implements industry best practices:
-- No plaintext tokens stored in the database
-- Cryptographically secure hashing
-- Username binding for token ownership and auditing
-- File-based token creation for token distribution only
+Portway provides visibility into its operations with detailed logs and health check endpoints.
 
-## 🔍 Monitoring
-Health check endpoints are available at:
-```
-GET /health
-GET /health/live
-GET /health/details
-```
+* Logs stored under `/log` with daily rotation
+* Auth logs included for auditing
+* Health endpoints:
 
-## ✨ Credits
-Built with ❤️ using:
-- [ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/)
-- [DynamicODataToSQL](https://github.com/DynamicODataToSQL/DynamicODataToSQL)
-- [Serilog](https://serilog.net/)
-- [SQLite](https://www.sqlite.org/index.html)
+  ```http
+  GET /health
+  GET /health/live
+  GET /health/details
+  ```
 
-Feel free to submit a PR if you'd like to contribute.
+## 🤝 Credits
+
+Thanks to the open source tools that make Portway possible:
+
+* [ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/)
+* [DynamicODataToSQL](https://github.com/DynamicODataToSQL/DynamicODataToSQL)
+* [Serilog](https://serilog.net/)
+* [SQLite](https://www.sqlite.org/index.html)
+
+## Contribution 
+
+Contributions welcome — submit a PR if you'd like to help improve Portway.
+

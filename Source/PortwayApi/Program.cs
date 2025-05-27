@@ -3,7 +3,11 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.Extensions.Hosting;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Instrumentation.AspNetCore;
+using OpenTelemetry.Instrumentation.Http;
+using OpenTelemetry.Instrumentation.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using SqlKata.Compilers;
@@ -150,6 +154,25 @@ try
                 });
         });
     };
+
+    builder.Services.AddOpenTelemetry()
+        .WithTracing(builder =>
+        {
+            builder
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddSqlClientInstrumentation()
+                .AddSource("PortwayAPI")
+                .AddOtlpExporter();
+        })
+        .WithMetrics(builder =>
+        {
+            builder
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddMeter("PortwayAPI")
+                .AddOtlpExporter();
+        });
 
     // Define server name
     string serverName = Environment.MachineName;

@@ -6,100 +6,99 @@ using System.Xml.Linq;
 using System.Linq;
 using Serilog;
 
-namespace PortwayApi.Helpers
+namespace PortwayApi.Helpers;
+
+/// <summary>
+/// Helper class for XML operations to support OData metadata processing
+/// </summary>
+public static class XmlHelper
 {
     /// <summary>
-    /// Helper class for XML operations to support OData metadata processing
+    /// Creates an XmlReader from a string containing XML
     /// </summary>
-    public static class XmlHelper
+    public static XmlReader CreateReader(string xml)
     {
-        /// <summary>
-        /// Creates an XmlReader from a string containing XML
-        /// </summary>
-        public static XmlReader CreateReader(string xml)
+        try
         {
-            try
+            var settings = new XmlReaderSettings
             {
-                var settings = new XmlReaderSettings
-                {
-                    IgnoreWhitespace = true,
-                    IgnoreComments = true,
-                    DtdProcessing = DtdProcessing.Prohibit // For security
-                };
+                IgnoreWhitespace = true,
+                IgnoreComments = true,
+                DtdProcessing = DtdProcessing.Prohibit // For security
+            };
 
-                return XmlReader.Create(new StringReader(xml), settings);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error creating XML reader from string");
-                throw;
-            }
+            return XmlReader.Create(new StringReader(xml), settings);
         }
-
-        /// <summary>
-        /// Parses a string into an XDocument
-        /// </summary>
-        public static XDocument ParseXml(string xml)
+        catch (Exception ex)
         {
-            try
-            {
-                return XDocument.Parse(xml, LoadOptions.None);
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error parsing XML string to XDocument");
-                throw;
-            }
+            Log.Error(ex, "Error creating XML reader from string");
+            throw;
         }
+    }
 
-        /// <summary>
-        /// Extracts namespace information from XML document
-        /// </summary>
-        public static Dictionary<string, string> ExtractNamespaces(XDocument doc)
+    /// <summary>
+    /// Parses a string into an XDocument
+    /// </summary>
+    public static XDocument ParseXml(string xml)
+    {
+        try
         {
-            try
+            return XDocument.Parse(xml, LoadOptions.None);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error parsing XML string to XDocument");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Extracts namespace information from XML document
+    /// </summary>
+    public static Dictionary<string, string> ExtractNamespaces(XDocument doc)
+    {
+        try
+        {
+            var result = new Dictionary<string, string>();
+
+            // Get all namespace declarations
+            var namespaces = doc.Root?
+                .Attributes()
+                .Where(a => a.IsNamespaceDeclaration)
+                .GroupBy(a => a.Name.LocalName)
+                .ToDictionary(g => g.Key, g => g.First().Value);
+
+            if (namespaces != null)
             {
-                var result = new Dictionary<string, string>();
-
-                // Get all namespace declarations
-                var namespaces = doc.Root?
-                    .Attributes()
-                    .Where(a => a.IsNamespaceDeclaration)
-                    .GroupBy(a => a.Name.LocalName)
-                    .ToDictionary(g => g.Key, g => g.First().Value);
-
-                if (namespaces != null)
+                foreach (var ns in namespaces)
                 {
-                    foreach (var ns in namespaces)
-                    {
-                        string prefix = string.IsNullOrEmpty(ns.Key) ? "xmlns" : ns.Key;
-                        result[prefix] = ns.Value;
-                    }
+                    string prefix = string.IsNullOrEmpty(ns.Key) ? "xmlns" : ns.Key;
+                    result[prefix] = ns.Value;
                 }
+            }
 
-                return result;
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error extracting namespaces from XML document");
-                return new Dictionary<string, string>();
-            }
+            return result;
         }
-
-        /// <summary>
-        /// Creates an XmlNamespaceManager with the namespaces from an XDocument
-        /// </summary>
-        public static XmlNamespaceManager CreateNamespaceManager(XDocument doc)
+        catch (Exception ex)
         {
-            var namespaceManager = new XmlNamespaceManager(new NameTable());
-            var namespaces = ExtractNamespaces(doc);
-
-            foreach (var ns in namespaces)
-            {
-                namespaceManager.AddNamespace(ns.Key, ns.Value);
-            }
-
-            return namespaceManager;
+            Log.Error(ex, "Error extracting namespaces from XML document");
+            return new Dictionary<string, string>();
         }
+    }
+
+    /// <summary>
+    /// Creates an XmlNamespaceManager with the namespaces from an XDocument
+    /// </summary>
+    public static XmlNamespaceManager CreateNamespaceManager(XDocument doc)
+    {
+        var namespaceManager = new XmlNamespaceManager(new NameTable());
+        var namespaces = ExtractNamespaces(doc);
+
+        foreach (var ns in namespaces)
+        {
+            namespaceManager.AddNamespace(ns.Key, ns.Value);
+        }
+
+        return namespaceManager;
     }
 }

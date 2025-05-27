@@ -239,10 +239,8 @@ namespace TokenGenerator
             }
             
             // Generate a random token
-            string token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64))
-                .Replace("+", "-") // Replace '+' with URL-safe '-'
-                .Replace("/", "_") // Replace '/' with URL-safe '_'
-                .TrimEnd('=');     // Remove padding '=' for URL safety       
+            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+            string token = RandomNumberGenerator.GetString(chars, 64);  
             
             // Generate salt for hashing
             byte[] salt = GenerateSalt();

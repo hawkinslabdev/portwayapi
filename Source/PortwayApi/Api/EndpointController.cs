@@ -16,6 +16,7 @@ using PortwayApi.Interfaces;
 using PortwayApi.Services;
 using PortwayApi.Services.Files;
 using Serilog;
+using System.Runtime.CompilerServices;
 
 namespace PortwayApi.Api;
 
@@ -746,91 +747,46 @@ public class EndpointController : ControllerBase
     {
         var segments = catchall.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Length == 0)
-        {
             return (EndpointType.Standard, string.Empty, null, string.Empty);
-        }
 
         string endpointName = segments[0];
         string? id = null;
         string remainingPath = segments.Length > 1 ? string.Join('/', segments.Skip(1)) : string.Empty;
 
-        // Handle different ID formats for SQL and Proxy endpoints
-        // Pattern for GUID format: Endpoint(guid'xxxx-xxxx')
-        var guidPattern = @"^\w+\(guid'([\w\-]+)'\)$";
-        var guidMatch = Regex.Match(endpointName, guidPattern);
-
-        // Pattern for string format: Endpoint('xxxx')
-        var stringPattern = @"^\w+\('([^']+)'\)$";
-        var stringMatch = Regex.Match(endpointName, stringPattern);
-
-        // Pattern for numeric format: Endpoint(123)
-        var numericPattern = @"^\w+\((\d+)\)$";
-        var numericMatch = Regex.Match(endpointName, numericPattern);
-
-        if (guidMatch.Success)
+        // Modern pattern matching for ID extraction
+        id = endpointName switch
         {
-            // Extract the endpoint name and GUID ID
-            endpointName = Regex.Replace(endpointName, @"\(guid'[\w\-]+'\)$", "");
-            id = guidMatch.Groups[1].Value;
-            Log.Debug("Extracted GUID ID: {Id} from endpoint {Endpoint}", id, endpointName);
-        }
-        else if (stringMatch.Success)
+            var name when Regex.IsMatch(name, @"^\w+\(guid'([\w\-]+)'\)$") => 
+                Regex.Match(name, @"^\w+\(guid'([\w\-]+)'\)$").Groups[1].Value,
+            var name when Regex.IsMatch(name, @"^\w+\('([^']+)'\)$") => 
+                Regex.Match(name, @"^\w+\('([^']+)'\)$").Groups[1].Value,
+            var name when Regex.IsMatch(name, @"^\w+\((\d+)\)$") => 
+                Regex.Match(name, @"^\w+\((\d+)\)$").Groups[1].Value,
+            _ => null
+        };
+
+        // Clean endpoint name if ID was extracted
+        if (id != null)
         {
-            // Extract the endpoint name and string ID
-            endpointName = Regex.Replace(endpointName, @"\('[^']+'\)$", "");
-            id = stringMatch.Groups[1].Value;
-            Log.Debug("Extracted string ID: {Id} from endpoint {Endpoint}", id, endpointName);
-        }
-        else if (numericMatch.Success)
-        {
-            // Extract the endpoint name and numeric ID
-            endpointName = Regex.Replace(endpointName, @"\(\d+\)$", "");
-            id = numericMatch.Groups[1].Value;
-            Log.Debug("Extracted numeric ID: {Id} from endpoint {Endpoint}", id, endpointName);
+            endpointName = Regex.Replace(endpointName, @"\([^)]+\)$", "");
         }
 
-        // Special handling for composite endpoints
-        if (endpointName.Equals("composite", StringComparison.OrdinalIgnoreCase))
+        // Determine endpoint type using pattern matching
+        var endpointType = endpointName switch
         {
-            if (segments.Length > 1)
-            {
-                endpointName = $"composite/{segments[1]}";
-                id = segments.Length > 2 ? segments[2] : null;
-                remainingPath = segments.Length > 3 ? string.Join('/', segments.Skip(3)) : string.Empty;
-            }
-            return (EndpointType.Composite, endpointName, id, remainingPath);
-        }
+            "composite" => EndpointType.Composite,
+            "webhook" => EndpointType.Webhook,
+            _ when EndpointHandler.GetSqlEndpoints().ContainsKey(endpointName) => EndpointType.SQL,
+            _ when EndpointHandler.GetEndpoints(Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Proxy")).ContainsKey(endpointName) => EndpointType.Proxy,
+            _ when EndpointHandler.GetFileEndpoints().ContainsKey(endpointName) => EndpointType.Files,
+            _ => EndpointType.Standard
+        };
 
-        // Special handling for webhook endpoints
-        if (endpointName.Equals("webhook", StringComparison.OrdinalIgnoreCase))
-        {
-            return (EndpointType.Webhook, remainingPath, null, string.Empty);
-        }
+        // Log the output
+        Log.Debug("Parsed endpoint: Type={Type}, Name={Name}, Id={Id}, RemainingPath={RemainingPath}",
+            endpointType, endpointName, id, remainingPath);
 
-        // Check if this is a SQL endpoint
-        var sqlEndpoints = EndpointHandler.GetSqlEndpoints();
-        if (sqlEndpoints.ContainsKey(endpointName))
-        {
-            return (EndpointType.SQL, endpointName, id, remainingPath);
-        }
-
-        // Check if this is a proxy endpoint
-        var proxyEndpoints = EndpointHandler.GetEndpoints(
-            Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Proxy")
-        );
-
-        if (proxyEndpoints.ContainsKey(endpointName))
-        {
-            return (EndpointType.Proxy, endpointName, id, remainingPath);
-        }
-
-        var fileEndpoints = EndpointHandler.GetFileEndpoints();
-        if (fileEndpoints.ContainsKey(endpointName))
-        {
-            return (EndpointType.Files, endpointName, id, remainingPath);
-        }
-
-        return (EndpointType.Standard, endpointName, id, remainingPath);
+        return (endpointType, endpointName, id, remainingPath);
     }
 
     /// <summary>

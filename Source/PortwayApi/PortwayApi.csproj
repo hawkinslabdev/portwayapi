@@ -29,6 +29,11 @@
     <!-- OData & SQL Querying -->
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="DynamicODataToSQL" Version="2.1.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.12.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.12.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.12.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.12.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.SqlClient" Version="1.12.0-beta.1" />
     <PackageReference Include="Polly" Version="8.5.2" />
     <PackageReference Include="SqlKata" Version="2.4.0" />
     <PackageReference Include="SqlKata.Execution" Version="2.4.0" />

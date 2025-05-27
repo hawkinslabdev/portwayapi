@@ -1,5 +1,3 @@
-namespace PortwayApi.Services.Files
-{
 using System;
 using System.Collections.Concurrent;
 using System.IO;
@@ -9,6 +7,8 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Options;
 using PortwayApi.Services.Caching;
 using Serilog;
+
+namespace PortwayApi.Services.Files;
 
 /// <summary>
 /// Configuration options for file storage
@@ -63,11 +63,11 @@ public class FileHandlerService : IDisposable
     private readonly ConcurrentDictionary<string, bool> _dirtyFlags = new();
     private readonly Timer _flushTimer;
     private readonly FileSystemIndex _fileSystemIndex;
-    private readonly ILogger _logger;
+    private readonly Serilog.ILogger _logger;
     private long _currentMemoryUsage = 0;
     private bool _disposed = false;
 
-    public FileHandlerService(IOptions<FileStorageOptions> options, CacheManager cacheManager, ILogger<FileHandlerService> logger)
+    public FileHandlerService(IOptions<FileStorageOptions> options, CacheManager cacheManager, Serilog.ILogger logger)
     {
         _options = options.Value;
         _cacheManager = cacheManager;
@@ -669,7 +669,7 @@ public class FileSystemIndex
     private readonly string _baseDirectory;
     private readonly ICacheProvider _cacheProvider;
     private readonly SemaphoreSlim _indexLock = new SemaphoreSlim(1, 1);
-    private readonly ILogger _logger;
+    private readonly Serilog.ILogger _logger;
     private readonly ConcurrentDictionary<string, Dictionary<string, FileMetadata>> _environmentIndices = new();
     private readonly Func<string, string, string> _fileIdGenerator;
     private readonly Func<string, string> _contentTypeResolver;
@@ -677,7 +677,7 @@ public class FileSystemIndex
     public FileSystemIndex(
         string baseDirectory, 
         ICacheProvider cacheProvider, 
-        ILogger logger,
+        Serilog.ILogger logger,
         Func<string, string, string> fileIdGenerator,
         Func<string, string> contentTypeResolver)
     {
@@ -831,5 +831,4 @@ public class FileSystemIndex
         
         _logger.Information("🔄 Refreshed all file indices");
     }
-}
 }

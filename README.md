@@ -260,3 +260,6 @@ Thanks to the open source tools that make Portway possible:
 
 Contributions welcome — submit a PR if you'd like to help improve Portway.
 
+## License
+
+Licensed under GNU AGPL (3.0) by Melosso.

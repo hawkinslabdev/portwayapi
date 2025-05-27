@@ -130,7 +130,7 @@ export default withMermaid(
   vite: {
     server: {
       host: true, // This allows external access
-      allowedHosts: ['localhost', '0.0.0.0', 'portway-docs.schwalb.nl']
+      allowedHosts: ['localhost', '0.0.0.0', 'portway-docs.melosso.com']
     }
   },
   markdown: {

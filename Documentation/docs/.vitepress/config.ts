@@ -17,8 +17,8 @@ export default withMermaid(
       {
         text: 'More',
         items: [
-          { text: 'Download', link: 'https://github.com/hawkinslabdev/portwayapi/releases/' },
-          { text: 'Demo page', link: 'https://portway-demo.schwalb.nl/' }
+          { text: 'Download', link: 'https://github.com/melosso/portwayapi/releases/' },
+          { text: 'Demo page', link: 'https://portway-demo.melosso.nl/' }
         ]
       }
       
@@ -62,8 +62,8 @@ export default withMermaid(
         {
           text: 'Contributing',
           items: [
-            { text: 'Bugs', link: 'https://github.com/hawkinslabdev/portwayapi/issues' },
-            { text: 'Suggestions', link: 'https://github.com/hawkinslabdev/portwayapi/discussions/' },
+            { text: 'Bugs', link: 'https://github.com/melosso/portwayapi/issues' },
+            { text: 'Suggestions', link: 'https://github.com/melosso/portwayapi/discussions/' },
           ]
         },
         {
@@ -117,7 +117,7 @@ export default withMermaid(
       ]
     },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/hawkinslabdev/portwayapi' }
+      { icon: 'github', link: 'https://github.com/melosso/portwayapi' }
     ],
     search: {
       provider: 'local'

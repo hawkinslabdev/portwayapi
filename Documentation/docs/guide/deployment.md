@@ -9,7 +9,10 @@ This guide explains how to deploy the Portway API on a Windows Server using Inte
 Before you begin, ensure you have:
 - Windows Server with IIS installed
 - Administrator access
-- [ASP.NET Core 8.0 Hosting Bundle](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [ASP.NET Core 9.0 Hosting Bundle](https://dotnet.microsoft.com/download/dotnet/9.0)
+
+> [!WARNING]
+> There's a slight difference between the x64-installer and the Hosting Bundle that ASP.NET Core 9.0 provides. Make sure to select the latter.
 
 > [!IMPORTANT]
 > This guide assumes you have basic knowledge of IIS configuration and data source connectivity. While we cover the essential steps, some details may require your existing expertise.
@@ -43,7 +46,7 @@ Ensure your deployment package contains:
 ## Installation
 
 ### Step 1: Install ASP.NET Core Runtime
-1. Download and install the ASP.NET Core 8.0 Hosting Bundle
+1. Download and install the ASP.NET Core 9.0 Hosting Bundle
 2. Restart IIS to activate the changes:
    ```cmd
    iisreset
@@ -167,14 +170,14 @@ After the first run, the token will be stored as a text file. Make sure to store
 
 ### 1. Test Basic Functionality
 Open a browser and navigate to:
-- `http://localhost/swagger` - API documentation interface
-- `http://localhost/health/live` - Basic health check
+- `https://localhost/swagger` - API documentation interface
+- `https://localhost/health/live` - Basic health check
 
 ### 2. Verify Authentication
 Test API authentication using PowerShell:
 ```powershell
 $token = Get-Content "C:\path\to\your\PortwayApi\tokens\[SERVERNAME].txt" | ConvertFrom-Json | Select-Object -ExpandProperty Token
-Invoke-RestMethod -Uri "http://localhost/health" -Headers @{"Authorization"="Bearer $token"}
+Invoke-RestMethod -Uri "https://localhost/health" -Headers @{"Authorization"="Bearer $token"}
 ```
 
 ### 3. Check Logs

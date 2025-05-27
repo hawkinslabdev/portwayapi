@@ -438,7 +438,7 @@ public static class EndpointHandler
                         // Add the endpoint to the dictionary
                         endpoints[endpointName] = definition;
 
-                        Log.Information("📁 File Endpoint: {Name} ({IsPrivate})",
+                        Log.Debug("📁 File Endpoint: {Name} ({IsPrivate})",
                             endpointName,
                             definition.IsPrivate ? "Private" : "Public");
                     }

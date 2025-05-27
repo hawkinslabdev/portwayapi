@@ -214,7 +214,7 @@ public class SqlConnectionPoolService : IHostedService
             TimeSpan.FromSeconds(30), // Start after 30 seconds
             _maintenanceInterval);
             
-        Log.Information("✅ SQL Connection Pool Service started with maintenance interval: {Interval} minutes", 
+        Log.Debug("✅ SQL Connection Pool Service started with maintenance interval: {Interval} minutes", 
             _maintenanceInterval.TotalMinutes);
             
         return Task.CompletedTask;

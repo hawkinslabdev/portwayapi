@@ -123,8 +123,8 @@ export default withMermaid(
       provider: 'local'
     },
     footer: {
-      message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2025-present Hawkin Lab Industries'
+      message: 'Released under the GNU AGPL (3.0) License.',
+      copyright: 'Copyright © 2025-Present Melosso.com'
     }
   },
   vite: {

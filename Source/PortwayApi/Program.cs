@@ -240,6 +240,9 @@ try
     builder.Services.AddSingleton<FileHandlerService>();
     builder.Services.AddSqlConnectionPooling(builder.Configuration);
 
+    // Add license check
+    builder.Services.AddSingleton<ILicenseService, LicenseService>();
+
     // Initialize endpoints directories
     DirectoryHelper.EnsureDirectoryStructure();
     

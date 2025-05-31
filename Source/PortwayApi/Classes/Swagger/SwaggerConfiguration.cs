@@ -202,7 +202,7 @@ public static class SwaggerConfiguration
                 bool forceHttps = swaggerSettings.ForceHttpsInProduction && isProduction;
                 
                 // Check if running on localhost or a development machine
-                string host = httpReq.Host.Value;
+                string host = httpReq.Host.HasValue ? httpReq.Host.Value : "localhost";
                 bool isLocalhost = host.Contains("localhost") || host.Contains("127.0.0.1");
                 
                 // Only force HTTPS for production domains, not localhost

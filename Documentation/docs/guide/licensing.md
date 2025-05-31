@@ -30,7 +30,7 @@ Portway offers flexible licensing to suit different use cases, from open source 
 
 After purchasing, you'll receive a license key in the format:
 ```
-LIC-1234567890-ABC123
+LIC-1234567890-ABC123-FOLLIWING_SOME_VALUE
 ```
 
 Find your key in:

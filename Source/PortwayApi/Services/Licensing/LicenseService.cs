@@ -10,9 +10,7 @@ namespace PortwayApi.Services
 {
     public class LicenseService : ILicenseService
     {
-        // EMBEDDED LICENSE SECRET - Same secret that Melosso server uses
-        private const string EMBEDDED_LICENSE_SECRET = "mL9x2kP8vN4qR7sT1wU5yZ3aB6cE9fH2jK5nP8rU1xY4zA7bD0gJ3mQ6sV9wC2eF";
-
+        private const string EMBEDDED_LICENSE_SECRET = "2WVXTcztRoRGSCiyMc3O5y+Yaym16ChiqwE8i9jviQCsy28mYU52PLTVn2HIt+jjKBLEphKK96amWWgBGcXr1A==";
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IConfiguration _configuration;
         private readonly string _licenseFilePath;

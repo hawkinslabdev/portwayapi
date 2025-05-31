@@ -256,10 +256,6 @@ Thanks to the open source tools that make Portway possible:
 * [Serilog](https://serilog.net/)
 * [SQLite](https://www.sqlite.org/index.html)
 
-## Contribution 
-
-Contributions welcome — submit a PR if you'd like to help improve Portway.
-
 ## License
 
 Portway is available under two licensing models:
@@ -267,6 +263,10 @@ Portway is available under two licensing models:
 * **Open Source (AGPL-3.0)** — Free for open source projects and personal use
 * **Commercial License** — For commercial use with full transparency of the open source project
 
-**Professional features** (priority support, guaranteed patches, DTAP environments) require a [commercial license](https://melosso.com/licensing/portway). Activation is simple with a license key from your account portal.
+**Professional features** (multiple API-keys, priority support, guaranteed patches, DTAP environments) require a [commercial license](https://melosso.com/licensing/portway). Activation is simple with a license key from your account portal.
 
 [Get your license →](https://melosso.com/licensing/portway)
+
+## Contribution 
+
+Contributions welcome — submit a PR if you'd like to help improve Portway. With your contributions, you’ll be eligible for a free license. 

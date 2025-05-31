@@ -1,165 +1,191 @@
 # Licensing
 
-Portway offers flexible licensing to suit different use cases, from open source projects to enterprise deployments.
+Portway offers flexible licensing options to suit different use cases, from personal projects to enterprise deployments.
 
 ## License Types
 
-### Open Source (AGPL-3.0)
-- **Free forever** for open source projects
-- Full core functionality included
+### Free Tier
+- **Free forever** for basic usage
+- Core API gateway functionality
 - Community support via GitHub
-- Source code modifications must be shared under AGPL
+- Limited to basic features
 
-### Commercial License
-- **Professional** — €19/month for growing businesses
-- **Enterprise** — Custom pricing for large organizations
-- Allows usage of multiple API-keys
-- Priority support and guaranteed patches
-- DTAP environment configurations included
+### Professional Tier
+- **Paid subscription** for commercial use
+- All features unlocked including advanced capabilities
+- Commercial usage permitted
+- Priority support and updates
+- Redis caching, traffic logging, and composite endpoints
 
 ## Getting a License
 
-1. Visit [melosso.com/licensing/portway](https://melosso.com/licensing/portway)
-2. Choose your plan and complete purchase
-3. Access your license key from the [account portal](https://melosso.com/portal)
-4. Follow the activation steps below
+1. Visit the Portway licensing portal
+2. Choose the Professional tier
+3. Complete the purchase process
+4. Receive your license key via email
+5. Follow the activation steps below
 
 ## License Activation
 
-### Step 1: Locate Your License Key
+### Method 1: Direct License File (Recommended)
 
-After purchasing, you'll receive a license key in the format:
+The simplest way to activate your license:
+
+1. **Locate License Key** - From your purchase confirmation email
+2. **Create License File** - Create a new text file named `.license` (note the dot at the beginning)
+3. **Save License Content** - Copy your license key into this file
+4. **Place in Portway Directory** - Put the `.license` file in the same folder as your Portway application
+5. **Restart Portway** - Restart the application or recycle the application pool (IIS)
+
+**Example `.license` file content:**
 ```
-LIC-1234567890-ABC123-FOLLIWING_SOME_VALUE
-```
-
-Find your key in:
-- Email confirmation
-- [Account portal](https://melosso.com/portal) → Licenses
-
-### Step 2: Activate the License
-
-#### Option A: Automatic Activation (Recommended)
-
-1. **Start Portway** with internet connectivity
-2. **Navigate to the license activation page** in your browser:
-   ```
-   https://your-portway-server/license/activate
-   ```
-3. **Enter your license key** and click "Activate"
-4. **Verify activation** — you should see "Professional" features enabled
-
-#### Option B: Manual Activation (Offline)
-
-If your server doesn't have internet access:
-
-1. **Generate machine ID** by visiting:
-   ```
-   https://your-portway-server/license/machine-id
-   ```
-2. **Submit offline activation request** at [melosso.com/portal](https://melosso.com/portal)
-3. **Download the license file** and place it in:
-   ```
-   /path/to/portway/license.portway
-   ```
-4. **Restart Portway** to load the license
-
-### Step 3: Verify License Status
-
-Check your license status at any time:
-```
-https://your-portway-server/license/status
+LIC-1734567890-ABC123
 ```
 
-Or via API:
-```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-     https://your-portway-server/api/license/status
-```
+**File location examples:**
+- **IIS**: `C:\inetpub\wwwroot\YourPortwayApp\.license`
+- **Standalone**: `C:\Portway\.license`
+- **Custom Path**: Same directory as `PortwayApi.exe`
 
-## Professional Features
+### Method 2: API Activation
 
-With an active commercial license, you gain access to:
+For programmatic activation, you can use the licensing API:
 
-### ✅ Guaranteed Patches
-- Critical security updates within 24 hours
-- Bug fixes prioritized for licensed users
-- Compatibility updates for new Windows Server versions
-
-### ✅ DTAP Environment Support
+**POST** to `/api/license/activate`
 ```json
 {
-  "AllowedEnvironments": ["dev", "test", "acceptance", "prod"],
-  "EnvironmentIsolation": true,
-  "CrossEnvironmentDeployment": true
+  "licenseKey": "LIC-1734567890-ABC123"
 }
 ```
 
-### ✅ Priority Support
-- Direct email support with SLA
-- Faster response times for technical issues
-- Access to advanced configuration guidance
+**Headers required:**
+```
+Content-Type: application/json
+Authorization: Bearer YOUR_API_TOKEN
+```
 
-### ✅ Extended Endpoint Limits
-- Unlimited SQL endpoints (vs 10 in open source)
-- Advanced composite endpoint patterns
-- Enhanced caching and rate limiting options
+### Verifying Activation
 
-## License Management
+After placing the license file and restarting:
+
+1. **Check Application Logs** - Look for license status messages during startup
+2. **Test Professional Features** - Try accessing features like Redis caching or composite endpoints
+3. **Monitor License Status** - Check if restrictions are lifted
+
+**Successful activation log messages:**
+```
+🔐 License service initialized
+📋 Valid signed license loaded: Professional
+✅ License activated and verified successfully
+```
+
+## License File Format
+
+After successful activation, Portway automatically creates a detailed `.license` file:
+
+```json
+{
+  "licenseKey": "LIC-1734567890-ABC123",
+  "productId": "portway-pro",
+  "status": "active",
+  "tier": "professional",
+  "expiresAt": "2025-12-31T23:59:59Z",
+  "activatedAt": "2024-12-01T10:30:00Z",
+  "machineId": "abc123def456",
+  "signature": "...",
+  "features": ["redis-caching", "traffic-logging", "composite-endpoints"]
+}
+```
+
+## Managing Your License
+
+### Checking License Status
+
+**Method 1: Application Logs**
+Check the Portway application logs during startup for license information.
+
+**Method 2: Feature Testing**
+Try to use Professional features:
+- Access Redis caching configuration
+- Create composite endpoints
+- Enable traffic logging
 
 ### Transferring Licenses
-Licenses are machine-bound for security. To transfer:
 
-1. **Deactivate** on the old server:
-   ```
-   https://old-server/license/deactivate
-   ```
-2. **Activate** on the new server using the same license key
+Professional licenses can be moved between installations:
 
-### Monitoring Usage
-Track your license usage in the [account portal](https://melosso.com/portal):
-- Active installations
-- License expiration dates
-- Usage statistics and logs
+1. **Stop Portway** on the current server
+2. **Delete `.license` file** from the current installation
+3. **Copy license key** to the new installation following the activation steps above
+4. **Restart Portway** on the new server
 
-### Renewal
-Licenses auto-renew by default. Manage renewal settings in your account portal.
+### License Issues
+
+**License Not Found:**
+- Ensure the `.license` file is in the correct directory
+- Check file permissions (application must be able to read the file)
+- Verify the file name starts with a dot (`.license`)
+
+**Invalid License:**
+- Check for extra spaces or characters in the license file
+- Ensure the license key format is correct
+- Verify the license is for the correct product
+
+**License Expired:**
+- Contact support for renewal options
+- Check if auto-renewal is enabled in your account
+
+## Features by Tier
+
+| Feature | Free | Professional |
+|---------|------|--------------|
+| Core API Gateway | ✅ | ✅ |
+| SQL Endpoints | ✅ | ✅ |
+| Proxy Endpoints | ✅ | ✅ |
+| File Storage | ✅ | ✅ |
+| Memory Caching | ✅ | ✅ |
+| Authentication & Rate Limiting | ✅ | ✅ |
+| **Multiple Authenication Keys** | Limited | Unlimited |
+| **Commercial Use** | ❌ | ✅ |
+| **Priority Support** | ❌ | ✅ |
 
 ## Troubleshooting
 
-### License Not Recognized
-```bash
-# Check license file permissions
-ls -la license.portway
+### Common File Issues
 
-# Verify file contents
-cat license.portway | head -5
+**License file not found:**
+```
+- Check file location: same directory as Portway executable
+- Verify file name: exactly ".license" (with dot)
+- Confirm file encoding: plain text (UTF-8)
+- Test file permissions: application can read the file
 ```
 
-### Activation Failures
-1. **Check internet connectivity** if using automatic activation
-2. **Verify license key format** (should start with `LIC-`)
-3. **Ensure license isn't already activated** on another machine
-4. **Contact support** if issues persist
+**License file ignored:**
+```
+- Restart Portway completely
+- Check application logs for license errors
+- Verify file contains only the license key
+- Ensure no extra characters or line breaks
+```
 
-### Common Error Messages
+### Getting Support
 
-| Error | Solution |
-|-------|----------|
-| "License key invalid" | Double-check the key format and try again |
-| "License already activated" | Deactivate from previous machine first |
-| "Network connection failed" | Use manual activation for offline servers |
-| "License expired" | Renew your subscription in the portal |
+**Community Support:**
+- GitHub issues for technical problems
+- Documentation and FAQ sections
+- Community forums and discussions
 
-## Support
+**Professional Support:**
+- Email support with license details
+- Priority response for licensed customers
+- Direct technical assistance
 
-Need help with licensing?
-
-- **Documentation**: This guide and our [FAQ](../troubleshooting#licensing)
-- **Community**: [GitHub Discussions](https://github.com/melosso/portway/discussions) for general questions
-- **Commercial Support**: Email support for licensed users
-- **Enterprise**: Direct contact for custom licensing needs
+**License Support:**
+- License activation assistance
+- Transfer and renewal help
+- Custom licensing arrangements
 
 ---
 
-*For enterprise licensing, bulk discounts, or custom terms, [contact our sales team](https://melosso.com/contact).*
+*For licensing questions, technical support, or custom arrangements, contact support through the official channels provided with your license purchase.*

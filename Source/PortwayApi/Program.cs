@@ -72,25 +72,25 @@ try
     {
         // 1. Disable server header (security)
         serverOptions.AddServerHeader = false;
-        
+
         // 2. Set appropriate request limits
         serverOptions.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10 MB request body limit
         serverOptions.Limits.MaxRequestHeadersTotalSize = 32 * 1024; // 32 KB for headers
-        
+
         // 3. Configure timeouts for better client handling
         serverOptions.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(2);
         serverOptions.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(30);
-        
+
         // 4. Connection rate limiting to prevent DoS
         serverOptions.Limits.MaxConcurrentConnections = 1000;
         serverOptions.Limits.MaxConcurrentUpgradedConnections = 100;
-        
+
         // 5. Data rate limiting to prevent slow requests
         serverOptions.Limits.MinRequestBodyDataRate = new MinDataRate(
             bytesPerSecond: 100, gracePeriod: TimeSpan.FromSeconds(10));
         serverOptions.Limits.MinResponseDataRate = new MinDataRate(
             bytesPerSecond: 100, gracePeriod: TimeSpan.FromSeconds(10));
-        
+
         // 6. HTTP/2 specific settings
         serverOptions.Limits.Http2.MaxStreamsPerConnection = 100;
         serverOptions.Limits.Http2.MaxFrameSize = 16 * 1024; // 16 KB
@@ -133,10 +133,10 @@ try
         options.SizeLimit = 1024 * 1024 * 10; // 10 MB
         options.MaximumBodySize = 1024 * 1024 * 10; // 10 MB
     });
-    
+
     // Add caching services (Redis and/or memory cache)
     builder.Services.AddCachingServices(builder.Configuration);
-    
+
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddRequestTrafficLogging(builder.Configuration);
     builder.Services.AddHttpContextAccessor();
@@ -154,7 +154,7 @@ try
                         .AllowAnyHeader();
                 });
         });
-    };
+    }
 
     builder.Services.AddOpenTelemetry()
         .WithTracing(builder =>
@@ -246,13 +246,13 @@ try
 
     // Initialize endpoints directories
     DirectoryHelper.EnsureDirectoryStructure();
-    
+
     // Load Proxy endpoints
     var proxyEndpointsDirectory = Path.Combine(Directory.GetCurrentDirectory(), "endpoints", "Proxy");
     var proxyEndpointMap = EndpointHandler.GetEndpoints(proxyEndpointsDirectory);
 
     // Register CompositeEndpointHandler with loaded endpoints
-    builder.Services.AddSingleton<CompositeEndpointHandler>(provider => 
+    builder.Services.AddSingleton<CompositeEndpointHandler>(provider =>
         new CompositeEndpointHandler(
             provider.GetRequiredService<IHttpClientFactory>(),
             proxyEndpointMap,
@@ -272,15 +272,15 @@ try
         {
             Directory.CreateDirectory(directory);
         }
-        File.WriteAllText(urlValidatorPath, JsonSerializer.Serialize(new 
-        { 
+        File.WriteAllText(urlValidatorPath, JsonSerializer.Serialize(new
+        {
             allowedHosts = new[] { "localhost", "127.0.0.1" },
-            blockedIpRanges = new[] 
-            { 
-                "10.0.0.0/8", 
-                "172.16.0.0/12", 
-                "192.168.0.0/16", 
-                "169.254.0.0/16" 
+            blockedIpRanges = new[]
+            {
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "169.254.0.0/16"
             }
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
@@ -289,16 +289,16 @@ try
 
     // Configure Health Checks
     builder.Services.AddHealthChecks();
-    
+
     // Register HealthCheckService wrapper with all dependencies
-    builder.Services.AddSingleton<PortwayApi.Services.HealthCheckService>(sp => 
+    builder.Services.AddSingleton<PortwayApi.Services.HealthCheckService>(sp =>
     {
         var healthCheckService = sp.GetRequiredService<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckService>();
         var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
         var endpointMap = EndpointHandler.GetEndpoints(proxyEndpointsDirectory);
-        
+
         return new PortwayApi.Services.HealthCheckService(
-            healthCheckService, 
+            healthCheckService,
             TimeSpan.FromSeconds(30),
             httpClientFactory,
             endpointMap);
@@ -310,20 +310,112 @@ try
     // Build the application
     var app = builder.Build();
 
-    // Configure middleware pipeline
+    // ================================
+    // MIDDLEWARE PIPELINE CONFIGURATION
+    // ================================
+
+    // 1. Response compression (early in pipeline)
     app.UseResponseCompression();
+
+    // 2. Exception handling (must be first for error handling)
     app.UseExceptionHandlingMiddleware();
+
+    // 3. Security headers (early security)
     app.UseSecurityHeaders();
-    
-    // Configure Swagger UI using our centralized configuration
+
+    // 4. HTTPS redirection and forwarded headers (before static files)
+    var forwardedHeadersOptions = new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                        ForwardedHeaders.XForwardedProto |
+                        ForwardedHeaders.XForwardedHost,
+        RequireHeaderSymmetry = false,
+        ForwardLimit = null
+    };
+    forwardedHeadersOptions.KnownNetworks.Clear();
+    forwardedHeadersOptions.KnownProxies.Clear();
+    app.UseForwardedHeaders(forwardedHeadersOptions);
+
+    // 5. Cloudflare-specific middleware
+    app.Use((context, next) =>
+    {
+        // Check for Cloudflare headers
+        if (context.Request.Headers.TryGetValue("CF-Visitor", out var cfVisitor))
+        {
+            if (cfVisitor.ToString().Contains("\"scheme\":\"https\""))
+            {
+                context.Request.Scheme = "https";
+            }
+        }
+
+        // Also check for Cloudflare connecting protocol
+        if (context.Request.Headers.TryGetValue("CF-Connecting-IP", out var _))
+        {
+            // We're behind Cloudflare, so trust the X-Forwarded-Proto header
+            if (context.Request.Headers.TryGetValue("X-Forwarded-Proto", out var proto) &&
+                proto == "https")
+            {
+                context.Request.Scheme = "https";
+            }
+        }
+
+        return next();
+    });
+
+    // 6. Configure Swagger UI BEFORE static files for proper routing
     SwaggerConfiguration.ConfigureSwaggerUI(app, swaggerSettings);
 
-    // Use Static Files middleware
-    app.UseDefaultFiles(new DefaultFilesOptions
+    // 7. Static Files Configuration - Use Extension Method (DRY principle)
+    app.UseDefaultFilesWithOptions();
+    app.UseStaticFilesWithFallback(app.Environment);
+
+    // 8. Development request/response logging
+    if (builder.Environment.IsDevelopment())
     {
-        DefaultFileNames = new List<string> { "index.html" }
+        app.Use(async (context, next) =>
+        {
+            Log.Information("📥 Incoming request: {Method} {Path}{QueryString}",
+                context.Request.Method,
+                context.Request.Path,
+                context.Request.QueryString);
+
+            var startTime = DateTime.UtcNow;
+            await next();
+            var duration = DateTime.UtcNow - startTime;
+
+            Log.Information("📤 Outgoing response: {StatusCode} for {Path} - Took {Duration}ms",
+                context.Response.StatusCode,
+                context.Request.Path,
+                Math.Round(duration.TotalMilliseconds));
+        });
+    }
+
+    // 9. CORS (before authentication)
+    app.UseCors(builder =>
+    {
+        builder.AllowAnyOrigin()
+               .AllowAnyMethod()
+               .AllowAnyHeader();
     });
-    app.MapStaticAssets(); 
+
+    // 10. Rate limiting (before authentication to limit by IP)
+    PortwayApi.Middleware.RateLimiterExtensions.UseRateLimiter(app);
+
+    // 11. Authentication and authorization
+    app.UseTokenAuthentication();
+    app.UseAuthorization();
+
+    // 12. Caching middleware (after auth)
+    app.UseResponseCaching();
+    app.UseAuthenticatedCaching();
+    app.UseRequestTrafficLogging();
+
+    // 13. Routing
+    app.UseRouting();
+
+    // ================================
+    // INITIALIZATION AND SETUP
+    // ================================
 
     // Initialize Database & Create Default Token if needed
     using (var scope = app.Services.CreateScope())
@@ -372,33 +464,7 @@ try
         }
     }
 
-    // Enable request/response logging
-    if (builder.Environment.IsDevelopment())
-    {
-        // Enable request/response logging
-        app.Use(async (context, next) => 
-        {
-            Log.Information("📥 Incoming request: {Method} {Path}{QueryString}", 
-                context.Request.Method, 
-                context.Request.Path,
-                context.Request.QueryString);
-                
-            // Capture the start time
-            var startTime = DateTime.UtcNow;
-            
-            await next();
-            
-            // Calculate request duration
-            var duration = DateTime.UtcNow - startTime;
-            
-            Log.Information("📤 Outgoing response: {StatusCode} for {Path} - Took {Duration}ms", 
-                context.Response.StatusCode, 
-                context.Request.Path,
-                Math.Round(duration.TotalMilliseconds));
-        });
-    }
-
-    // Get environment settings services
+    // Get environment settings services and log endpoint summary
     var environmentSettings = app.Services.GetRequiredService<EnvironmentSettings>();
     var sqlEnvironmentProvider = app.Services.GetRequiredService<IEnvironmentSettingsProvider>();
 
@@ -408,70 +474,37 @@ try
 
     EndpointSummaryHelper.LogEndpointSummary(sqlEndpoints, proxyEndpointMap, webhookEndpoints, fileEndpoints);
 
-    // Use Rate Limiting middleware
-    PortwayApi.Middleware.RateLimiterExtensions.UseRateLimiter(app);
-
-    // Use CORS middleware
-    app.UseCors(builder =>
-    {
-        builder.AllowAnyOrigin()
-               .AllowAnyMethod()
-               .AllowAnyHeader();
-    });
-    app.UseRequestTrafficLogging();
-
-    // Use other middleware
-    app.UseTokenAuthentication();
-    app.UseResponseCaching();
-    app.UseAuthenticatedCaching();
-    app.UseAuthorization();
-
-    var forwardedHeadersOptions = new ForwardedHeadersOptions
-    {
-        ForwardedHeaders = ForwardedHeaders.XForwardedFor | 
-                        ForwardedHeaders.XForwardedProto | 
-                        ForwardedHeaders.XForwardedHost,
-        RequireHeaderSymmetry = false,
-        ForwardLimit = null 
-    };
-    forwardedHeadersOptions.KnownNetworks.Clear();
-    forwardedHeadersOptions.KnownProxies.Clear();
-
-    app.UseForwardedHeaders(forwardedHeadersOptions);
-
-    app.Use((context, next) =>
-    {
-        // Check for Cloudflare headers
-        if (context.Request.Headers.TryGetValue("CF-Visitor", out var cfVisitor))
-        {
-            if (cfVisitor.ToString().Contains("\"scheme\":\"https\""))
-            {
-                context.Request.Scheme = "https";
-            }
-        }
-        
-        // Also check for Cloudflare connecting protocol
-        if (context.Request.Headers.TryGetValue("CF-Connecting-IP", out var _))
-        {
-            // We're behind Cloudflare, so trust the X-Forwarded-Proto header
-            if (context.Request.Headers.TryGetValue("X-Forwarded-Proto", out var proto) && 
-                proto == "https")
-            {
-                context.Request.Scheme = "https";
-            }
-        }
-        
-        return next();
-    });
+    // ================================
+    // ENDPOINT MAPPING
+    // ================================
 
     // Map controller routes
     app.MapControllers();
 
     // Register Composite middleware
     app.MapCompositeEndpoint();
-  
+
     // Map health check endpoints
     PortwayApi.Endpoints.HealthCheckEndpointExtensions.MapHealthCheckEndpoints(app);
+
+    // Fallback for unmatched routes (helpful for debugging)
+    app.MapFallback(async context =>
+    {
+        var path = context.Request.Path.Value;
+        Log.Warning("🔍 Unmatched route: {Method} {Path}", context.Request.Method, path);
+
+        context.Response.StatusCode = 404;
+        context.Response.ContentType = "application/json";
+
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Route not found",
+            method = context.Request.Method,
+            path = path,
+            suggestion = "Try visiting /swagger for API documentation",
+            timestamp = DateTime.UtcNow
+        });
+    });
 
     // Log application URLs
     var urls = app.Urls;
@@ -490,18 +523,18 @@ try
     }
     else
     {
-        var serverUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") 
-            ?? builder.Configuration["Kestrel:Endpoints:Http:Url"] 
+        var serverUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS")
+            ?? builder.Configuration["Kestrel:Endpoints:Http:Url"]
             ?? builder.Configuration["urls"]
             ?? "http://localhost:5000";
-        
+
         // Add a space after each ; in serverUrls for better readability
         var formattedUrls = serverUrls.Replace(";", "; ");
         Log.Information("🌐 Application is hosted on: {Urls}", formattedUrls);
     }
 
     // Register application shutdown handler
-    app.Lifetime.ApplicationStopping.Register(() => 
+    app.Lifetime.ApplicationStopping.Register(() =>
     {
         Log.Information("Application shutting down...");
         Log.CloseAndFlush();
@@ -543,4 +576,3 @@ public static class RateLimitingExtensions
         return services;
     }
 }
-

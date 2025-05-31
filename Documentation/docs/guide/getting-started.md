@@ -7,7 +7,7 @@ This guide will help you set up your first API gateway and configure endpoints t
 Before you begin, make sure you have:
 
 - Windows Server (or Windows 11 for development)
-- [.NET 9+ ASP.NET Core Runtime](https://dotnet.microsoft.com/en-us/download)
+- [.NET 9+ ASP.NET Core Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/9.0)
 - Internet Information Services (IIS) with ASP.NET Core Hosting Bundle
 - SQL Server database access (for SQL endpoints)
 - Administrative access to configure IIS
@@ -16,7 +16,7 @@ Before you begin, make sure you have:
 
 ### Download and Extract
 
-1. Go to the [Releases page](https://github.com/hawkinslabdev/portwayapi/releases/)
+1. Go to the [Releases page](https://github.com/melosso/portwayapi/releases/)
 2. Download the latest `Deployment.zip` file
 3. Extract it to your IIS directory (e.g., `C:\path\to\your\PortwayApi`)
 

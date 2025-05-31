@@ -44,9 +44,9 @@ Portway is a lightweight API gateway designed specifically for Windows environme
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/hawkinslabdev/portwayapi/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/hawkinslabdev/portwayapi/discussions)
+- **Issues**: [GitHub Issues](https://github.com/melosso/portwayapi/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/melosso/portwayapi/discussions)
 
 ## License
 
-Portway is released under the MIT License. See the [LICENSE](https://github.com/hawkinslabdev/portwayapi/blob/main/LICENSE) file for details.
+Portway is released under the MIT License. See the [LICENSE](https://github.com/melosso/portwayapi/blob/main/LICENSE) file for details.

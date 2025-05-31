@@ -59,6 +59,7 @@ try
     // Create WebApplication Builder
     var builder = WebApplication.CreateBuilder(args);
     builder.Host.UseSerilog();
+    builder.Services.AddSingleton<Serilog.ILogger>(Log.Logger);
 
     builder.Configuration.AddJsonFile("appsettings.json", optional: false)
                      .AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true);
@@ -313,18 +314,16 @@ try
     app.UseResponseCompression();
     app.UseExceptionHandlingMiddleware();
     app.UseSecurityHeaders();
+    
+    // Configure Swagger UI using our centralized configuration
+    SwaggerConfiguration.ConfigureSwaggerUI(app, swaggerSettings);
 
     // Use Static Files middleware
     app.UseDefaultFiles(new DefaultFilesOptions
     {
         DefaultFileNames = new List<string> { "index.html" }
     });
-    
-    // Optimize the handling of static files by replacing UseStaticFiles with MapStaticAssets, as suggested in the .NET 9.0 migration strategy
     app.MapStaticAssets(); 
-    
-    // Configure Swagger UI using our centralized configuration
-    SwaggerConfiguration.ConfigureSwaggerUI(app, swaggerSettings);
 
     // Initialize Database & Create Default Token if needed
     using (var scope = app.Services.CreateScope())

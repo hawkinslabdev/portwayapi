@@ -13,10 +13,10 @@ hero:
       link: /guide/getting-started
     - theme: alt
       text: Download
-      link: https://github.com/hawkinslabdev/portwayapi/releases/
+      link: https://github.com/melosso/portwayapi/releases/
     - theme: alt
       text: View on GitHub
-      link: https://github.com/hawkinslabdev/portwayapi
+      link: https://github.com/melosso/portwayapi
 
 features:
   - icon: 🗄️
@@ -37,7 +37,7 @@ features:
 
 Install Portway and have your API gateway running in minutes:
 
-1. Download the [latest release](https://github.com/hawkinslabdev/portwayapi/releases/)
+1. Download the [latest release](https://github.com/melosso/portwayapi/releases/)
 2. Extract the files and configure the website in Internet Information Services
 3. Configure the environment(s) and endpoint(s)
 4. Start your website and enjoy!

@@ -166,6 +166,17 @@ GET /api/prod/Products
 Authorization: Bearer YOUR_ACCESS_TOKEN
 ```
 
+## 💼 Licensing
+
+Portway is available under two licensing models:
+
+* **Open Source (AGPL-3.0)** — Free for open source projects and personal use
+* **Commercial License** — For commercial use without open source requirements
+
+**Professional features** (priority support, guaranteed patches, DTAP environments) require a [commercial license](https://melosso.com/licensing/portway). Activation is simple with a license key from your account portal.
+
+[Get your license →](https://melosso.com/licensing/portway)
+
 ## Next Steps
 
 Now that Portway is running in IIS:

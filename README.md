@@ -262,4 +262,11 @@ Contributions welcome — submit a PR if you'd like to help improve Portway.
 
 ## License
 
-Licensed under GNU AGPL (3.0) by Melosso.
+Portway is available under two licensing models:
+
+* **Open Source (AGPL-3.0)** — Free for open source projects and personal use
+* **Commercial License** — For commercial use with full transparency of the open source project
+
+**Professional features** (priority support, guaranteed patches, DTAP environments) require a [commercial license](https://melosso.com/licensing/portway). Activation is simple with a license key from your account portal.
+
+[Get your license →](https://melosso.com/licensing/portway)

@@ -28,7 +28,7 @@ public class CacheManager : ICacheProvider
             _ => memoryCacheProvider
         };
 
-        Log.Information("🔧 Cache Manager initialized with {ProviderType} provider", _provider.ProviderType);
+        Log.Debug("🔧 Cache Manager initialized with {ProviderType} provider", _provider.ProviderType);
     }
 
     /// <summary>

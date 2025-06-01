@@ -189,6 +189,7 @@ try
     builder.Services.AddScoped<TokenService>();
     builder.Services.AddAuthorization();
     builder.Services.AddHostedService<LogFlusher>();
+    builder.Services.AddHostedService<LicenseStartupService>();
 
     // Register route constraint for ProxyConstraint
     builder.Services.Configure<RouteOptions>(options =>
@@ -434,7 +435,6 @@ try
             if (!activeTokens.Any())
             {
                 var token = await tokenService.GenerateTokenAsync(serverName);
-                Log.Information("🗝️ Generated new default token for {ServerName}", serverName);
                 Log.Information("📁 Token has been saved to tokens/{ServerName}.txt", serverName);
             }
             else

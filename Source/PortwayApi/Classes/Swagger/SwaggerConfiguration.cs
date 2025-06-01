@@ -208,7 +208,7 @@ public static class SwaggerConfiguration
                 // Only force HTTPS for production domains, not localhost
                 if (forceHttps && !isLocalhost) {
                     scheme = "https";
-                    Log.Information("🔒 Forcing HTTPS in Swagger documentation: Environment={Env}, Host={Host}", 
+                    Log.Debug("🔒 Forcing HTTPS in Swagger documentation: Environment={Env}, Host={Host}", 
                         app.Environment.EnvironmentName, host);
                 }
                 

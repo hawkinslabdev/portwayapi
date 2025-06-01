@@ -22,6 +22,17 @@ public class TokenService
             Log.Debug("✅ Created tokens directory: {Directory}", _tokenFolderPath);
         }
     }
+
+    /// <summary>
+    /// Get the first token ever created (lowest ID) for Free mode restrictions
+    /// </summary>
+    public async Task<AuthToken?> GetFirstTokenAsync()
+    {
+        return await _dbContext.Tokens
+            .Where(t => t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > DateTime.UtcNow))
+            .OrderBy(t => t.Id)
+            .FirstOrDefaultAsync();
+    }
     
     /// <summary>
     /// Generate a new token for a user with optional scopes and expiration
@@ -68,6 +79,8 @@ public class TokenService
         
         // Save token to file
         await SaveTokenToFileAsync(username, token, allowedScopes, allowedEnvironments, expiresAt, description);
+        
+        Log.Information("🔑 Created new token (ID: {TokenId}) for user: {Username}", tokenEntry.Id, username);
         
         return token;
     }
@@ -273,19 +286,7 @@ public class TokenService
                 AllowedEnvironments = allowedEnvironments,
                 ExpiresAt = expiresAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never",
                 CreatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
-                Usage = "Use this token in the Authorization header as: Bearer <token>",
-                //Remarks = new
-                //{
-                //    ScopeInformation = new {
-                //        Format = "Comma-separated list of endpoint names, or * for all endpoints",
-                //        Examples = new[]
-                //        {
-                //            "* (access to all endpoints)",
-                //            "Products,Customers (access to only these endpoints)",
-                //            "Product* (access to all endpoints starting with Product)"
-                //        }
-                //    }
-                //}
+                Usage = "Use this token in the Authorization header as: Bearer <token>"
             };
             
             var options = new JsonSerializerOptions { WriteIndented = true };
@@ -308,6 +309,7 @@ public class TokenService
     {
         return await _dbContext.Tokens
             .Where(t => t.RevokedAt == null && (t.ExpiresAt == null || t.ExpiresAt > DateTime.UtcNow))
+            .OrderBy(t => t.Id) // Order by ID to show first token first
             .ToListAsync();
     }
     
@@ -316,7 +318,9 @@ public class TokenService
     /// </summary>
     public async Task<IEnumerable<AuthToken>> GetAllTokensAsync()
     {
-        return await _dbContext.Tokens.ToListAsync();
+        return await _dbContext.Tokens
+            .OrderBy(t => t.Id) // Order by ID to show first token first
+            .ToListAsync();
     }
     
     /// <summary>
@@ -349,6 +353,7 @@ public class TokenService
             Log.Warning(ex, "⚠️ Could not rename token file for revoked token");
         }
         
+        Log.Information("🗑️ Revoked token ID: {TokenId} for user: {Username}", tokenId, token.Username);
         return true;
     }
     

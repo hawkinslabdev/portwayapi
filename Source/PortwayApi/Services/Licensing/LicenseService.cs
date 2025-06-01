@@ -1,387 +1,601 @@
-// Services/LicenseService.cs - Fixed to match existing interface
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using PortwayApi.Models.License;
 using PortwayApi.Interfaces;
 using Serilog;
 
-namespace PortwayApi.Services
+namespace PortwayApi.Services;
+
+public class LicenseService : ILicenseService
 {
-    public class LicenseService : ILicenseService
+    private const string EMBEDDED_LICENSE_SECRET = "2WVXTcztRoRGSCiyMc3O5y+Yaym16ChiqwE8i9jviQCsy28mYU52PLTVn2HIt+jjKBLEphKK96amWWgBGcXr1A==";
+    
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IConfiguration _configuration;
+    private readonly string _licenseKeyFilePath;
+    private readonly string _activatedLicenseFilePath;
+    private readonly string _machineId;
+    private readonly JsonSerializerOptions _jsonOptions;
+    
+    private LicenseInfo? _cachedLicense;
+    private DateTime _lastCheck = DateTime.MinValue;
+
+    public LicenseService(IHttpClientFactory httpClientFactory, IConfiguration configuration)
     {
-        private const string EMBEDDED_LICENSE_SECRET = "2WVXTcztRoRGSCiyMc3O5y+Yaym16ChiqwE8i9jviQCsy28mYU52PLTVn2HIt+jjKBLEphKK96amWWgBGcXr1A==";
-        private readonly IHttpClientFactory _httpClientFactory;
-        private readonly IConfiguration _configuration;
-        private readonly string _licenseFilePath;
-        private readonly string _machineId;
-        private LicenseInfo? _cachedLicense;
-        private DateTime _lastCheck = DateTime.MinValue;
-
-        public LicenseService(IHttpClientFactory httpClientFactory, IConfiguration configuration)
+        _httpClientFactory = httpClientFactory;
+        _configuration = configuration;
+        _licenseKeyFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".license");
+        _activatedLicenseFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".license-key");
+        _machineId = GetMachineId();
+        
+        _jsonOptions = new JsonSerializerOptions
         {
-            _httpClientFactory = httpClientFactory;
-            _configuration = configuration;
-            _licenseFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".license");
-            _machineId = GetMachineId();
-            
-            Log.Information("🔐 License service initialized");
-            _ = Task.Run(LoadLicenseAsync);
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+        
+        Log.Information("🔐 License service initialized with machine ID: {MachineId}", MaskString(_machineId, 6));
+    }
+
+    public async Task<LicenseInfo?> GetCurrentLicenseAsync()
+    {
+        if (_cachedLicense == null)
+        {
+            await LoadLicenseAsync();
         }
+        return _cachedLicense;
+    }
 
-        public async Task<LicenseInfo?> GetCurrentLicenseAsync()
+    public async Task<bool> ActivateLicenseAsync(string licenseKey)
+    {
+        try
         {
-            if (_cachedLicense == null || DateTime.UtcNow - _lastCheck > TimeSpan.FromMinutes(5))
+            // Validate input
+            if (string.IsNullOrWhiteSpace(licenseKey))
             {
-                await LoadLicenseAsync();
+                Log.Warning("❌ License key is null or empty");
+                return false;
             }
-            return _cachedLicense;
-        }
 
-        public async Task<bool> ActivateLicenseAsync(string licenseKey)
-        {
-            try
+            licenseKey = licenseKey.Trim();
+
+            Log.Information("🔑 Attempting to activate license: {LicenseKey}", MaskLicenseKey(licenseKey));
+
+            var melossoCoreUrl = _configuration["License:MelossoCoreUrl"] ?? "https://melosso.com";
+            var activationUrl = $"{melossoCoreUrl}/api/licenses/activate";
+
+            using var httpClient = _httpClientFactory.CreateClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(30);
+            
+            // Add proper headers
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "Portway/1.0");
+            httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
+
+            // Create activation request with exact field names expected by server
+            var activationRequest = new LicenseActivationRequest
             {
-                Log.Information("🔑 Activating license: {LicenseKey}", MaskLicenseKey(licenseKey));
+                LicenseKey = licenseKey,
+                ProductId = "portway-pro",
+                MachineId = _machineId,
+                Version = GetVersion()
+            };
 
-                var melossoCoreUrl = _configuration["License:MelossoCoreUrl"] ?? "https://melosso.com";
+            Log.Debug("📤 Sending activation request to: {Url}", activationUrl);
+            Log.Debug("📋 Request payload: ProductId={ProductId}, MachineId={MachineId}, Version={Version}", 
+                activationRequest.ProductId, MaskString(_machineId, 6), activationRequest.Version);
 
-                using var httpClient = _httpClientFactory.CreateClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(30);
+            var response = await httpClient.PostAsJsonAsync(activationUrl, activationRequest, _jsonOptions);
+            
+            var responseContent = await response.Content.ReadAsStringAsync();
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                Log.Warning("⚠️ License activation failed: {StatusCode} - {Content}", 
+                    response.StatusCode, responseContent);
+                return false;
+            }
 
-                var request = new
+            var result = JsonSerializer.Deserialize<LicenseActivationResponse>(responseContent, _jsonOptions);
+            
+            if (result?.Success != true)
+            {
+                Log.Warning("⚠️ License activation unsuccessful: {Message}", result?.Message ?? "Unknown error");
+                return false;
+            }
+
+            if (result.License == null)
+            {
+                Log.Error("❌ License activation response missing license data");
+                return false;
+            }
+
+            // Verify signature using embedded secret
+            if (!VerifyLicenseSignature(result.License))
+            {
+                Log.Error("❌ License signature verification failed");
+                return false;
+            }
+
+            // Convert and save the activated license
+            var licenseInfo = ConvertToLicenseInfo(result.License);
+            await SaveActivatedLicenseAsync(result.License);
+            
+            // Delete the original license key file since we no longer need it
+            await CleanupLicenseKeyFileAsync();
+
+            _cachedLicense = licenseInfo;
+            _lastCheck = DateTime.UtcNow;
+            
+            Log.Information("✅ License activated successfully: {Tier} tier, expires: {Expires}", 
+                licenseInfo.Tier, licenseInfo.ExpiresAt?.ToString("yyyy-MM-dd") ?? "Never");
+            
+            return true;
+        }
+        catch (HttpRequestException ex)
+        {
+            Log.Error(ex, "❌ Network error during license activation");
+            return false;
+        }
+        catch (TaskCanceledException ex)
+        {
+            Log.Error(ex, "❌ License activation timed out");
+            return false;
+        }
+        catch (JsonException ex)
+        {
+            Log.Error(ex, "❌ Invalid JSON response during license activation");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Unexpected error during license activation");
+            return false;
+        }
+    }
+
+    public Task<bool> ValidateLicenseAsync()
+    {
+        try
+        {
+            if (_cachedLicense == null)
+            {
+                Log.Debug("📋 No license cached - validation failed");
+                return Task.FromResult(false);
+            }
+
+            // Only local validation - never check server again
+            var isValid = _cachedLicense.IsValid;
+            
+            if (!isValid)
+            {
+                if (_cachedLicense.ExpiresAt.HasValue && _cachedLicense.ExpiresAt < DateTime.UtcNow)
                 {
-                    licenseKey,
-                    productId = "portway-pro",
-                    machineId = _machineId,
-                    version = GetVersion()
-                };
-
-                var response = await httpClient.PostAsJsonAsync($"{melossoCoreUrl}/api/licenses/activate", request);
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    var responseContent = await response.Content.ReadAsStringAsync();
-                    var result = JsonSerializer.Deserialize<LicenseActivationResponse>(responseContent);
-                    
-                    if (result?.Success == true && result.License != null)
-                    {
-                        // Convert from activation response to our LicenseInfo model
-                        var licenseInfo = ConvertToLicenseInfo(result.License);
-                        
-                        // Verify signature using embedded secret
-                        if (VerifyLicenseSignature(result.License))
-                        {
-                            await SaveLicenseAsync(licenseInfo);
-                            _cachedLicense = licenseInfo;
-                            Log.Information("✅ License activated and verified successfully");
-                            return true;
-                        }
-                        else
-                        {
-                            Log.Error("❌ License signature verification failed");
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        Log.Warning("⚠️ License activation failed: {Message}", result?.Message ?? "Unknown error");
-                        return false;
-                    }
+                    Log.Warning("⚠️ License has expired: {ExpirationDate}", _cachedLicense.ExpiresAt);
                 }
                 else
                 {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    Log.Warning("⚠️ License activation request failed: {StatusCode} - {Content}", 
-                        response.StatusCode, errorContent);
-                    return false;
+                    Log.Warning("⚠️ License is invalid - status: {Status}", _cachedLicense.Status);
                 }
             }
-            catch (Exception ex)
+            else
             {
-                Log.Error(ex, "❌ License activation error");
-                return false;
+                Log.Debug("✅ License validation successful: {Tier} tier", _cachedLicense.Tier);
             }
-        }
 
-        public Task<bool> ValidateLicenseAsync()
+            return Task.FromResult(isValid);
+        }
+        catch (Exception ex)
         {
-            try
+            Log.Warning(ex, "⚠️ Exception during license validation");
+            return Task.FromResult(false);
+        }
+    }
+
+    public async Task<bool> DeactivateLicenseAsync()
+    {
+        try
+        {
+            var deletedFiles = new List<string>();
+
+            // Delete activated license file
+            if (await TryDeleteFileAsync(_activatedLicenseFilePath))
             {
-                if (_cachedLicense == null)
+                deletedFiles.Add("activated license");
+            }
+
+            // Delete license key file
+            if (await TryDeleteFileAsync(_licenseKeyFilePath))
+            {
+                deletedFiles.Add("license key");
+            }
+
+            // Clear cached license
+            _cachedLicense = null;
+            _lastCheck = DateTime.MinValue;
+
+            if (deletedFiles.Any())
+            {
+                Log.Information("✅ License deactivated successfully - removed: {Files}", 
+                    string.Join(", ", deletedFiles));
+                Log.Information("💡 You can now activate a new license key");
+            }
+            else
+            {
+                Log.Information("ℹ️ No license files found to delete");
+            }
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Failed to deactivate license");
+            return false;
+        }
+    }
+
+    public bool HasFeature(string feature)
+    {
+        if (string.IsNullOrWhiteSpace(feature))
+            return false;
+            
+        var currentLicense = _cachedLicense;
+        if (currentLicense?.IsProfessional != true)
+            return false;
+            
+        // For now, Professional tier has all features
+        return true;
+    }
+
+    public LicenseTier GetCurrentTier()
+    {
+        return _cachedLicense?.IsProfessional == true ? LicenseTier.Professional : LicenseTier.Free;
+    }
+
+    public bool IsProfessionalOrHigher()
+    {
+        return _cachedLicense?.IsProfessional ?? false;
+    }
+
+    #region Private Methods
+
+    private async Task LoadLicenseAsync()
+    {
+        try
+        {
+            // First priority: Check for activated license file
+            if (File.Exists(_activatedLicenseFilePath))
+            {
+                if (await TryLoadActivatedLicenseAsync())
                 {
-                    return Task.FromResult(false);
-                }
-
-                // Check local validation first
-                if (!_cachedLicense.IsValid)
-                {
-                    Log.Warning("⚠️ License is locally invalid (expired or inactive)");
-                    return Task.FromResult(false);
-                }
-
-                // Skip remote validation if recently validated
-                if (_lastCheck > DateTime.UtcNow.AddMinutes(-30))
-                {
-                    return Task.FromResult(true);
-                }
-
-                // For now, just rely on local validation
-                // Could add remote validation here if needed
-                return Task.FromResult(_cachedLicense.IsValid);
-            }
-            catch (Exception ex)
-            {
-                Log.Warning(ex, "⚠️ Exception during license validation");
-                return Task.FromResult(_cachedLicense?.IsValid ?? false);
-            }
-        }
-
-        public async Task<bool> DeactivateLicenseAsync()
-        {
-            try
-            {
-                if (File.Exists(_licenseFilePath))
-                {
-                    await Task.Run(() => File.Delete(_licenseFilePath));
-                    Log.Information("🗑️ License file deleted");
-                }
-
-                _cachedLicense = null;
-                _lastCheck = DateTime.MinValue;
-
-                Log.Information("✅ License deactivated successfully");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "❌ Failed to deactivate license");
-                return false;
-            }
-        }
-
-        public bool HasFeature(string feature)
-        {
-            // Simple implementation: Professional has all features, Free has none
-            return IsProfessionalOrHigher();
-        }
-
-        public LicenseTier GetCurrentTier()
-        {
-            if (_cachedLicense?.IsProfessional == true)
-            {
-                return LicenseTier.Professional;
-            }
-            return LicenseTier.Free;
-        }
-
-        public bool IsProfessionalOrHigher()
-        {
-            return _cachedLicense?.IsProfessional ?? false;
-        }
-
-        private async Task LoadLicenseAsync()
-        {
-            try
-            {
-                if (!File.Exists(_licenseFilePath))
-                {
-                    _cachedLicense = null;
                     return;
                 }
+            }
 
-                var content = await File.ReadAllTextAsync(_licenseFilePath);
-                var licenseData = JsonSerializer.Deserialize<SignedLicenseData>(content);
-                
-                if (licenseData != null)
-                {
-                    // Verify signature using embedded secret
-                    if (VerifyLicenseSignature(licenseData))
-                    {
-                        _cachedLicense = ConvertToLicenseInfo(licenseData);
-                        _lastCheck = DateTime.UtcNow;
-                        Log.Information("📋 Valid signed license loaded: {Tier}", _cachedLicense.Tier);
-                    }
-                    else
-                    {
-                        Log.Error("❌ License file signature invalid - removing tampered license");
-                        File.Delete(_licenseFilePath);
-                        _cachedLicense = null;
-                        Log.Warning("🗑️ Deleted invalid license file - reverting to Free mode");
-                    }
-                }
-            }
-            catch (Exception ex)
+            // Second priority: Check for license key file that needs activation
+            if (File.Exists(_licenseKeyFilePath))
             {
-                Log.Warning(ex, "⚠️ Failed to load license");
-                _cachedLicense = null;
+                await TryLoadAndActivateLicenseKeyAsync();
+                return;
             }
+
+            // No license found
+            _cachedLicense = null;
+            Log.Information("ℹ️ No license found - running in Free mode");
         }
-
-        private bool VerifyLicenseSignature(SignedLicenseData license)
+        catch (Exception ex)
         {
-            try
+            Log.Warning(ex, "⚠️ Failed to load license");
+            _cachedLicense = null;
+        }
+    }
+
+    private async Task<bool> TryLoadActivatedLicenseAsync()
+    {
+        try
+        {
+            var content = await File.ReadAllTextAsync(_activatedLicenseFilePath, Encoding.UTF8);
+            var licenseData = JsonSerializer.Deserialize<SignedLicenseData>(content, _jsonOptions);
+            
+            if (licenseData != null && VerifyLicenseSignature(licenseData))
             {
-                if (string.IsNullOrEmpty(license.Signature))
-                {
-                    Log.Warning("⚠️ License missing signature");
-                    return false;
-                }
-
-                // Recreate the exact same string that was signed on server
-                var dataToVerify = string.Join("|", new[]
-                {
-                    license.LicenseKey,
-                    license.ProductId,
-                    license.Status,
-                    license.Tier,
-                    license.MachineId,
-                    license.IssuedAt?.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") ?? "",
-                    license.IssuedBy ?? ""
-                });
-
-                // Calculate expected HMAC signature using embedded secret
-                using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(EMBEDDED_LICENSE_SECRET));
-                var dataBytes = Encoding.UTF8.GetBytes(dataToVerify);
-                var expectedSignatureBytes = hmac.ComputeHash(dataBytes);
-
-                // Compare signatures (timing-safe)
-                var providedSignatureBytes = Convert.FromBase64String(license.Signature);
-                var isValid = CryptographicOperations.FixedTimeEquals(
-                    expectedSignatureBytes,
-                    providedSignatureBytes
-                );
-
-                if (!isValid)
-                {
-                    Log.Warning("❌ License signature verification failed for key: {LicenseKey}", 
-                        MaskLicenseKey(license.LicenseKey));
-                }
-
-                return isValid;
+                _cachedLicense = ConvertToLicenseInfo(licenseData);
+                _lastCheck = DateTime.UtcNow;
+                Log.Information("📋 Valid activated license loaded: {Tier} tier", _cachedLicense.Tier);
+                return true;
             }
-            catch (Exception ex)
+            else
             {
-                Log.Error(ex, "❌ Error verifying license signature");
+                Log.Error("❌ Activated license file signature invalid - removing tampered license");
+                await TryDeleteFileAsync(_activatedLicenseFilePath);
+                Log.Warning("🗑️ Deleted invalid activated license file");
                 return false;
             }
         }
-
-        private LicenseInfo ConvertToLicenseInfo(SignedLicenseData signedData)
+        catch (Exception ex)
         {
-            return new LicenseInfo
-            {
-                LicenseKey = signedData.LicenseKey,
-                ProductId = signedData.ProductId,
-                ProductName = signedData.ProductName,
-                Status = signedData.Status,
-                Tier = signedData.Tier,
-                ExpiresAt = signedData.ExpiresAt,
-                ActivatedAt = signedData.ActivatedAt,
-                MachineId = signedData.MachineId,
-                Features = signedData.Features ?? new List<string>()
-            };
+            Log.Warning(ex, "⚠️ Failed to load activated license file");
+            return false;
         }
+    }
 
-        private async Task SaveLicenseAsync(LicenseInfo license)
+    private async Task TryLoadAndActivateLicenseKeyAsync()
+    {
+        try
         {
-            try
-            {
-                // Save with signature data for verification on next load
-                var signedData = new SignedLicenseData
-                {
-                    LicenseKey = license.LicenseKey,
-                    ProductId = license.ProductId,
-                    ProductName = license.ProductName,
-                    Status = license.Status,
-                    Tier = license.Tier,
-                    ExpiresAt = license.ExpiresAt,
-                    ActivatedAt = license.ActivatedAt,
-                    MachineId = license.MachineId,
-                    Features = license.Features,
-                    IssuedBy = "melosso",
-                    IssuedAt = DateTime.UtcNow,
-                    Signature = "" // This should be set from the server response
-                };
-
-                var content = JsonSerializer.Serialize(signedData, new JsonSerializerOptions { WriteIndented = true });
-                await File.WriteAllTextAsync(_licenseFilePath, content);
-                Log.Information("💾 License saved to file");
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "❌ Failed to save license file");
-                throw;
-            }
-        }
-
-        private string GetMachineId()
-        {
-            var idFile = Path.Combine(Directory.GetCurrentDirectory(), ".machine-id");
+            var licenseKey = (await File.ReadAllTextAsync(_licenseKeyFilePath, Encoding.UTF8)).Trim();
             
-            try
+            if (string.IsNullOrEmpty(licenseKey))
             {
-                if (File.Exists(idFile))
+                Log.Warning("⚠️ License key file is empty");
+                return;
+            }
+
+            Log.Information("🔍 Found license key file - attempting automatic activation");
+            
+            // Attempt to activate the license
+            var activated = await ActivateLicenseAsync(licenseKey);
+            
+            if (!activated)
+            {
+                Log.Warning("⚠️ Failed to activate license from .license file");
+                // Keep the file so user can try again or fix issues
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Failed to load and activate license key file");
+        }
+    }
+
+    private bool VerifyLicenseSignature(SignedLicenseData license)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(license.Signature))
+            {
+                Log.Warning("⚠️ License missing signature");
+                return false;
+            }
+
+            // Recreate the exact same string that was signed on server
+            var dataToVerify = string.Join("|", new[]
+            {
+                license.LicenseKey ?? string.Empty,
+                license.ProductId ?? string.Empty,
+                license.Status ?? string.Empty,
+                license.Tier ?? string.Empty,
+                license.MachineId ?? string.Empty,
+                license.IssuedAt?.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") ?? string.Empty,
+                license.IssuedBy ?? string.Empty
+            });
+
+            // Calculate expected HMAC signature using embedded secret
+            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(EMBEDDED_LICENSE_SECRET));
+            var dataBytes = Encoding.UTF8.GetBytes(dataToVerify);
+            var expectedSignatureBytes = hmac.ComputeHash(dataBytes);
+
+            // Compare signatures (timing-safe)
+            var providedSignatureBytes = Convert.FromBase64String(license.Signature);
+            var isValid = CryptographicOperations.FixedTimeEquals(
+                expectedSignatureBytes,
+                providedSignatureBytes
+            );
+
+            if (!isValid)
+            {
+                Log.Warning("❌ License signature verification failed for key: {LicenseKey}", 
+                    MaskLicenseKey(license.LicenseKey ?? "unknown"));
+            }
+
+            return isValid;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error verifying license signature");
+            return false;
+        }
+    }
+
+    private static LicenseInfo ConvertToLicenseInfo(SignedLicenseData signedData)
+    {
+        return new LicenseInfo
+        {
+            LicenseKey = signedData.LicenseKey ?? string.Empty,
+            ProductId = signedData.ProductId ?? string.Empty,
+            ProductName = signedData.ProductName ?? string.Empty,
+            Status = signedData.Status ?? string.Empty,
+            Tier = signedData.Tier ?? "free",
+            ExpiresAt = signedData.ExpiresAt,
+            ActivatedAt = signedData.ActivatedAt,
+            MachineId = signedData.MachineId ?? string.Empty,
+            Features = signedData.Features ?? new List<string>()
+        };
+    }
+
+    private async Task SaveActivatedLicenseAsync(SignedLicenseData signedLicense)
+    {
+        try
+        {
+            var content = JsonSerializer.Serialize(signedLicense, _jsonOptions);
+            await File.WriteAllTextAsync(_activatedLicenseFilePath, content, Encoding.UTF8);
+            Log.Information("💾 Activated license saved to .license-key file");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Failed to save activated license file");
+            throw;
+        }
+    }
+
+    private async Task CleanupLicenseKeyFileAsync()
+    {
+        try
+        {
+            if (File.Exists(_licenseKeyFilePath))
+            {
+                await Task.Run(() => File.Delete(_licenseKeyFilePath));
+                Log.Information("🗑️ Removed original license key file");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Failed to cleanup license key file");
+        }
+    }
+
+    private async Task<bool> TryDeleteFileAsync(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                await Task.Run(() => File.Delete(filePath));
+                return true;
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Failed to delete file: {FilePath}", filePath);
+            return false;
+        }
+    }
+
+    private string GetMachineId()
+    {
+        var idFile = Path.Combine(Directory.GetCurrentDirectory(), ".machine-id");
+        
+        try
+        {
+            if (File.Exists(idFile))
+            {
+                var fileId = File.ReadAllText(idFile, Encoding.UTF8).Trim();
+                if (!string.IsNullOrEmpty(fileId))
                 {
-                    return File.ReadAllText(idFile).Trim();
+                    return fileId;
                 }
+            }
 
-                // Create a stable machine ID
-                var machineInfo = $"{Environment.MachineName}-{Environment.UserName}-{Environment.OSVersion.Platform}";
-                using var sha256 = SHA256.Create();
-                var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(machineInfo));
-                var id = Convert.ToHexString(hash)[..16].ToLowerInvariant();
-                
-                File.WriteAllText(idFile, id);
-                Log.Information("🔧 Generated machine ID: {MachineId}", id[..8] + "***");
-                return id;
-            }
-            catch (Exception ex)
-            {
-                Log.Warning(ex, "⚠️ Failed to create machine ID file");
-                return Environment.MachineName + "-" + Guid.NewGuid().ToString("N")[..8];
-            }
+            // Create a stable machine ID
+            var machineInfo = $"{Environment.MachineName}-{Environment.UserName}-{Environment.OSVersion.Platform}";
+            using var sha256 = SHA256.Create();
+            var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(machineInfo));
+            var generatedId = Convert.ToHexString(hash)[..16].ToLowerInvariant();
+            
+            File.WriteAllText(idFile, generatedId, Encoding.UTF8);
+            Log.Information("🔧 Generated machine ID: {MachineId}", MaskString(generatedId, 6));
+            return generatedId;
         }
-
-        private string GetVersion()
+        catch (Exception ex)
         {
-            try
-            {
-                return System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
-            }
-            catch
-            {
-                return "1.0.0";
-            }
+            Log.Warning(ex, "⚠️ Failed to create machine ID file");
+            return Environment.MachineName + "-" + Guid.NewGuid().ToString("N")[..8];
         }
+    }
 
-        private static string MaskLicenseKey(string key)
+    private static string GetVersion()
+    {
+        try
         {
-            return key.Length > 8 ? $"{key[..4]}***{key[^4..]}" : "***";
+            return System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+        }
+        catch
+        {
+            return "1.0.0";
         }
     }
 
-    // Helper classes for JSON serialization
-    public class SignedLicenseData
+    private static string MaskLicenseKey(string key)
     {
-        public string LicenseKey { get; set; } = string.Empty;
-        public string ProductId { get; set; } = string.Empty;
-        public string ProductName { get; set; } = string.Empty;
-        public string Status { get; set; } = string.Empty;
-        public string Tier { get; set; } = "free";
-        public DateTime? ExpiresAt { get; set; }
-        public DateTime? ActivatedAt { get; set; }
-        public string MachineId { get; set; } = string.Empty;
-        public string IssuedBy { get; set; } = string.Empty;
-        public DateTime? IssuedAt { get; set; }
-        public string Signature { get; set; } = string.Empty;
-        public List<string> Features { get; set; } = new();
+        if (string.IsNullOrEmpty(key))
+            return "***";
+            
+        return key.Length > 8 ? $"{key[..4]}***{key[^4..]}" : "***";
     }
 
-    public class LicenseActivationResponse
+    private static string MaskString(string value, int visibleChars)
     {
-        public bool Success { get; set; }
-        public SignedLicenseData? License { get; set; }
-        public string Message { get; set; } = string.Empty;
+        if (string.IsNullOrEmpty(value))
+            return "***";
+            
+        if (value.Length <= visibleChars)
+            return new string('*', value.Length);
+            
+        return $"{value[..visibleChars]}***";
     }
+
+    #endregion
 }
+
+#region Data Transfer Objects
+
+public class LicenseActivationRequest
+{
+    [JsonPropertyName("licenseKey")]
+    public string LicenseKey { get; set; } = string.Empty;
+
+    [JsonPropertyName("productId")]
+    public string ProductId { get; set; } = string.Empty;
+
+    [JsonPropertyName("machineId")]
+    public string MachineId { get; set; } = string.Empty;
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+}
+
+public class SignedLicenseData
+{
+    [JsonPropertyName("licenseKey")]
+    public string LicenseKey { get; set; } = string.Empty;
+
+    [JsonPropertyName("productId")]
+    public string ProductId { get; set; } = string.Empty;
+
+    [JsonPropertyName("productName")]
+    public string ProductName { get; set; } = string.Empty;
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+
+    [JsonPropertyName("tier")]
+    public string Tier { get; set; } = "free";
+
+    [JsonPropertyName("expiresAt")]
+    public DateTime? ExpiresAt { get; set; }
+
+    [JsonPropertyName("activatedAt")]
+    public DateTime? ActivatedAt { get; set; }
+
+    [JsonPropertyName("machineId")]
+    public string MachineId { get; set; } = string.Empty;
+
+    [JsonPropertyName("issuedBy")]
+    public string IssuedBy { get; set; } = string.Empty;
+
+    [JsonPropertyName("issuedAt")]
+    public DateTime? IssuedAt { get; set; }
+
+    [JsonPropertyName("signature")]
+    public string Signature { get; set; } = string.Empty;
+
+    [JsonPropertyName("features")]
+    public List<string> Features { get; set; } = new();
+}
+
+public class LicenseActivationResponse
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+
+    [JsonPropertyName("license")]
+    public SignedLicenseData? License { get; set; }
+
+    [JsonPropertyName("message")]
+    public string Message { get; set; } = string.Empty;
+}
+
+#endregion

@@ -111,7 +111,8 @@ public static class StaticFilesMiddlewareExtensions
             await next();
         });
 
-        Log.Information("✅ Static files middleware configured with caching, security headers, and fallbacks");
+        Log.Debug("✅ Static files middleware configured with caching, security headers, and fallbacks");
+        
         return app;
     }
 

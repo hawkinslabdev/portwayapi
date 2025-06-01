@@ -1,10 +1,15 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
-using Serilog.Extensions.Logging;
 
 /*
  * Enhanced TokenGenerator with Runtime Stability Improvements
@@ -719,7 +724,7 @@ class Program
             // Configure logging with better error handling
             ConfigureLogging(options.Verbose);
 
-            Log.Information("🔑 Portway Token Generator");
+            Log.Information("Portway Token Generator");
             Log.Information("=====================================");
 
             var (serviceProvider, config) = await ConfigureServicesAsync(options);
@@ -979,8 +984,9 @@ class Program
 
     static void DisplayMenu()
     {
+        Console.WriteLine("");
         Console.WriteLine("===============================================");
-        Console.WriteLine("      Portway Token Generator v2.0        ");
+        Console.WriteLine("            Portway Token Generator           ");
         Console.WriteLine("===============================================");
         Console.WriteLine("1. List all existing tokens");
         Console.WriteLine("2. Generate new token");
@@ -990,6 +996,7 @@ class Program
         Console.WriteLine("6. Update token expiration");
         Console.WriteLine("0. Exit");
         Console.WriteLine("-----------------------------------------------");
+        Console.WriteLine("");
         Console.Write("Select an option: ");
     }
 

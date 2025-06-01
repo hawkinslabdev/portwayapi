@@ -1,4 +1,3 @@
-// Models/License/LicenseInfo.cs
 using System.Text.Json.Serialization;
 
 namespace PortwayApi.Models.License;
@@ -18,7 +17,7 @@ public class LicenseInfo
     public string Status { get; set; } = string.Empty;
 
     [JsonPropertyName("tier")]
-    public string Tier { get; set; } = "free";
+    public string Tier { get; set; } = "community";
 
     [JsonPropertyName("expiresAt")]
     public DateTime? ExpiresAt { get; set; }
@@ -36,31 +35,4 @@ public class LicenseInfo
     public bool IsProfessional => Tier == "professional" && IsValid;
 }
 
-public enum LicenseTier
-{
-    Free,
-    Professional
-}
-
-public static class LicenseHelper
-{
-    public static LicenseTier ParseTier(string tier)
-    {
-        return tier?.ToLowerInvariant() switch
-        {
-            "professional" or "pro" => LicenseTier.Professional,
-            _ => LicenseTier.Free
-        };
-    }
-
-    public static string GetTierDisplayName(LicenseTier tier)
-    {
-        return tier switch
-        {
-            LicenseTier.Professional => "Professional",
-            _ => "Free"
-        };
-    }
-
-    public static bool IsProfessional(LicenseTier tier) => tier == LicenseTier.Professional;
-}
+// LicenseTier enum and LicenseHelper are now in separate shared file

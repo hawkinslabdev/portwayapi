@@ -189,7 +189,9 @@ try
     builder.Services.AddScoped<TokenService>();
     builder.Services.AddAuthorization();
     builder.Services.AddHostedService<LogFlusher>();
-    builder.Services.AddHostedService<LicenseStartupService>();
+
+    // Configure licensing services
+    builder.Services.AddLicenseServices();
 
     // Register route constraint for ProxyConstraint
     builder.Services.Configure<RouteOptions>(options =>

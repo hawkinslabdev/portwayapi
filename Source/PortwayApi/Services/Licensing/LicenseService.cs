@@ -8,7 +8,7 @@ using Serilog;
 
 namespace PortwayApi.Services;
 
-public class LicenseService : ILicenseService
+public class LicenseService : ILicenseService 
 {
     private const string EMBEDDED_LICENSE_SECRET = "2WVXTcztRoRGSCiyMc3O5y+Yaym16ChiqwE8i9jviQCsy28mYU52PLTVn2HIt+jjKBLEphKK96amWWgBGcXr1A==";
     
@@ -87,7 +87,11 @@ public class LicenseService : ILicenseService
             Log.Debug("📋 Request payload: ProductId={ProductId}, MachineId={MachineId}, Version={Version}", 
                 activationRequest.ProductId, MaskString(_machineId, 6), activationRequest.Version);
 
-            var response = await httpClient.PostAsJsonAsync(activationUrl, activationRequest, _jsonOptions);
+            var jsonString = JsonSerializer.Serialize(activationRequest, _jsonOptions);
+            var content = new StringContent(jsonString, Encoding.UTF8, "application/json");
+            
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            var response = await httpClient.PostAsync(activationUrl, content);
             
             var responseContent = await response.Content.ReadAsStringAsync();
             
@@ -249,9 +253,11 @@ public class LicenseService : ILicenseService
         return true;
     }
 
-    public LicenseTier GetCurrentTier()
+    public Models.License.LicenseTier GetCurrentTier()
     {
-        return _cachedLicense?.IsProfessional == true ? LicenseTier.Professional : LicenseTier.Free;
+        return _cachedLicense?.IsProfessional == true 
+            ? Models.License.LicenseTier.Professional 
+            : Models.License.LicenseTier.CommunityEdition;
     }
 
     public bool IsProfessionalOrHigher()
@@ -283,7 +289,7 @@ public class LicenseService : ILicenseService
 
             // No license found
             _cachedLicense = null;
-            Log.Information("ℹ️ No license found - running in Free mode");
+            Log.Information("ℹ️ No license found - running in Community Edition");
         }
         catch (Exception ex)
         {
@@ -407,7 +413,7 @@ public class LicenseService : ILicenseService
             ProductId = signedData.ProductId ?? string.Empty,
             ProductName = signedData.ProductName ?? string.Empty,
             Status = signedData.Status ?? string.Empty,
-            Tier = signedData.Tier ?? "free",
+            Tier = signedData.Tier ?? "community",
             ExpiresAt = signedData.ExpiresAt,
             ActivatedAt = signedData.ActivatedAt,
             MachineId = signedData.MachineId ?? string.Empty,
@@ -562,7 +568,7 @@ public class SignedLicenseData
     public string Status { get; set; } = string.Empty;
 
     [JsonPropertyName("tier")]
-    public string Tier { get; set; } = "free";
+    public string Tier { get; set; } = "community";
 
     [JsonPropertyName("expiresAt")]
     public DateTime? ExpiresAt { get; set; }

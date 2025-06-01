@@ -3,7 +3,7 @@ namespace PortwayApi.Middleware;
 using System.Security.Claims;
 using System.Text.Json;
 using PortwayApi.Auth;
-using PortwayApi.Interfaces;
+using PortwayApi.Services;
 using Serilog;
 
 public class TokenAuthMiddleware
@@ -15,7 +15,7 @@ public class TokenAuthMiddleware
         _next = next;
     }
 
-    public async Task InvokeAsync(HttpContext context, AuthDbContext dbContext, TokenService tokenService, ILicenseService licenseService)
+    public async Task InvokeAsync(HttpContext context, AuthDbContext dbContext, TokenService tokenService, LicenseManager licenseManager)
     {
         // Extract path and environment from request
         var path = context.Request.Path.Value?.ToLowerInvariant();
@@ -76,30 +76,31 @@ public class TokenAuthMiddleware
             return;
         }
 
-        // Check license-based token restrictions**
-        var currentLicense = await licenseService.GetCurrentLicenseAsync();
-        bool isProfessional = currentLicense?.IsProfessional ?? false;
+        // Check license-based token restrictions using CACHED license info
+        bool isProfessional = licenseManager.IsProfessionalOrHigher;
 
-        // If isn't licensed, then only allow the first token (lowest ID) to be used
+        // If not licensed for Professional, then only allow the first token (lowest ID) to be used
         if (!isProfessional)
         {
             var firstToken = await tokenService.GetFirstTokenAsync();
             if (firstToken != null && tokenDetails.Id != firstToken.Id)
             {
-                Log.Warning("🚫 Token access denied. Free tier limitations apply for token ID: {TokenId}", 
+                Log.Warning("🚫 Token access denied. Community Edition limitations apply for token ID: {TokenId}", 
                     tokenDetails.Id);
                 
                 context.Response.StatusCode = 403;
                 context.Response.ContentType = "application/json";
                 await context.Response.WriteAsJsonAsync(new { 
                     error = "Access denied",
-                    message = "Your current plan limits API token usage. Please upgrade to Professional for enhanced token management capabilities.",
+                    message = $"Your current plan ({licenseManager.CurrentEdition}) limits API token usage. Please upgrade to Professional for enhanced token management capabilities.",
                     errorCode = "INSUFFICIENT_PERMISSIONS",
+                    currentEdition = licenseManager.CurrentEdition,
                     success = false 
                 });
                 return;
             }
         }
+
         // Check environment access
         if (!string.IsNullOrEmpty(env))
         {
@@ -145,8 +146,8 @@ public class TokenAuthMiddleware
         }
 
         // Token is valid, has proper scopes, and access to the environment - proceed
-        Log.Debug("✅ Authorized {User} (Token ID: {TokenId}) for {Method} {Path}", 
-            tokenDetails.Username, tokenDetails.Id, context.Request.Method, context.Request.Path);
+        Log.Debug("✅ Authorized {User} (Token ID: {TokenId}) for {Method} {Path} [Edition: {Edition}]", 
+            tokenDetails.Username, tokenDetails.Id, context.Request.Method, context.Request.Path, licenseManager.CurrentEdition);
         await _next(context);
     }
 

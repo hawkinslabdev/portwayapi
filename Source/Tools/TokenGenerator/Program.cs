@@ -12,10 +12,10 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 
 /*
- * Enhanced TokenGenerator with Runtime Stability Improvements
- * ========================================================
+ * Enhanced TokenGenerator with Runtime Stability Improvements and Fixed Logging
+ * ===========================================================================
  * 
- * This version includes fixes for .NET runtime issues and enhanced features:
+ * This version includes fixes for .NET runtime issues, enhanced features, and proper logging:
  * 
  * 1. Runtime stability improvements for Windows CFG/shadow stack compatibility
  * 2. Better error handling and graceful degradation
@@ -24,6 +24,7 @@ using Serilog;
  * 5. Improved token file format with better scope display and instructions
  * 6. Support for wildcard scopes and environments
  * 7. Enhanced logging and error reporting
+ * 8. FIXED: Disabled SQL query logging to prevent console clutter
  * 
  * Usage examples:
  * - Generate token with specific scopes:
@@ -70,10 +71,13 @@ public class AuthDbContext : DbContext
             });
         }
         
-        // Disable sensitive data logging for security
+        // CRITICAL: Disable all database logging to prevent SQL queries appearing in console
         optionsBuilder.EnableSensitiveDataLogging(false);
         optionsBuilder.EnableServiceProviderCaching();
         optionsBuilder.EnableDetailedErrors(false);
+        
+        // IMPORTANT: Filter out Entity Framework logging to prevent SQL INSERT queries from showing
+        optionsBuilder.LogTo(message => { }, Microsoft.Extensions.Logging.LogLevel.None);
     }
 
     public async Task<bool> EnsureTablesCreatedAsync()
@@ -1515,14 +1519,21 @@ class Program
         Log.Debug("Database path: {DbPath}", config.DatabasePath);
         Log.Debug("Tokens folder: {TokensFolder}", config.TokensFolder);
         
-        // Add logging services
+        // Add logging services with EF filtering
         services.AddLogging(builder =>
         {
             builder.ClearProviders();
             builder.AddSerilog(dispose: true);
+            
+            // CRITICAL: Filter out Entity Framework logging to prevent SQL queries from appearing in console
+            builder.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.None);
+            builder.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None);
+            builder.AddFilter("Microsoft.EntityFrameworkCore.Infrastructure", LogLevel.None);
+            builder.AddFilter("Microsoft.EntityFrameworkCore.Database.Connection", LogLevel.None);
+            builder.AddFilter("Microsoft.EntityFrameworkCore.Database.Transaction", LogLevel.None);
         });
         
-        // Add EF DbContext with better configuration
+        // Add EF DbContext with better configuration and NO logging
         services.AddDbContext<AuthDbContext>(options =>
         {
             options.UseSqlite($"Data Source={config.DatabasePath}", sqliteOptions =>
@@ -1533,7 +1544,11 @@ class Program
             // Performance and reliability improvements
             options.EnableSensitiveDataLogging(false);
             options.EnableServiceProviderCaching();
-            options.EnableDetailedErrors(config.EnableDetailedLogging);
+            options.EnableDetailedErrors(false);
+            
+            // CRITICAL: Completely disable Entity Framework logging
+            options.LogTo(_ => { }, LogLevel.None);
+            options.ConfigureWarnings(warnings => warnings.Ignore());
         });
 
         services.AddScoped<TokenService>();

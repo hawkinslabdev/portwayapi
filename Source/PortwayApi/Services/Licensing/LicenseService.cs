@@ -425,7 +425,14 @@ public class LicenseService : ILicenseService
     {
         try
         {
-            var content = JsonSerializer.Serialize(signedLicense, _jsonOptions);
+            // Redact the license key for file output only
+            var redactedLicense = JsonSerializer.Deserialize<SignedLicenseData>(
+                JsonSerializer.Serialize(signedLicense, _jsonOptions), _jsonOptions);
+            if (redactedLicense != null)
+            {
+                redactedLicense.LicenseKey = MaskLicenseKeyForFile(signedLicense.LicenseKey);
+            }
+            var content = JsonSerializer.Serialize(redactedLicense ?? signedLicense, _jsonOptions);
             await File.WriteAllTextAsync(_activatedLicenseFilePath, content, Encoding.UTF8);
             Log.Information("💾 Activated license saved to .license-key file");
         }
@@ -531,6 +538,15 @@ public class LicenseService : ILicenseService
             return new string('*', value.Length);
             
         return $"{value[..visibleChars]}***";
+    }
+
+    private static string MaskLicenseKeyForFile(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+            return "***";
+        if (key.Length <= 8)
+            return new string('*', key.Length);
+        return $"{key[..4]}***{key[^4..]}";
     }
 
     #endregion

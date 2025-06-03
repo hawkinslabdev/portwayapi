@@ -10,8 +10,15 @@ namespace PortwayApi.Services;
 
 public class LicenseService : ILicenseService 
 {
-    private const string EMBEDDED_LICENSE_SECRET = "2WVXTcztRoRGSCiyMc3O5y+Yaym16ChiqwE8i9jviQCsy28mYU52PLTVn2HIt+jjKBLEphKK96amWWgBGcXr1A==";
-    
+    private const string EMBEDDED_RSA_PUBLIC_KEY = @"-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApE+cOD4v1xLesrmVsE54
+H6oHSFNEE3WKxc3GSRLnzSuiHt79I5JPuS44YXs8gwFmltL615mfqyY1FL9VmmM1
+raQBhTEu94Mh4CbLvo2YWABdNpvb9Mka1DflBCdj2OoSh02RPBuHB/uMTuW60qPD
+UTBuevA/ZE44Pz+k1eMIOt6S1AkbMkidpJQQjBoe5LQIwqYzCQYSI6QihqNff+xH
+453VZnOGlv1zWcNQSLQLT0d5xafldUe4H3mEyayXIxVcD87aZa4pc2mFUFbct+AQ
+OM04QdYoLsjAtO33495iZdv5gQV3QJG6GSNd5DxKdG2u5frKDAWbO2CFbrRlx2JH
+AwIDAQAB
+-----END PUBLIC KEY-----";    
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
     private readonly string _licenseKeyFilePath;
@@ -331,15 +338,48 @@ public class LicenseService : ILicenseService
     {
         try
         {
-            var licenseKey = (await File.ReadAllTextAsync(_licenseKeyFilePath, Encoding.UTF8)).Trim();
+            var fileContent = (await File.ReadAllTextAsync(_licenseKeyFilePath, Encoding.UTF8)).Trim();
             
-            if (string.IsNullOrEmpty(licenseKey))
+            if (string.IsNullOrEmpty(fileContent))
             {
                 Log.Warning("⚠️ License key file is empty");
                 return;
             }
 
-            Log.Information("🔍 Found license key file - attempting automatic activation");
+            string licenseKey;
+            
+            // Check if this is a JSON license file or a simple license key
+            if (fileContent.StartsWith("{") && fileContent.Contains("\"license\""))
+            {
+                try
+                {
+                    // This is a downloaded license file - extract the license key
+                    var licenseFile = JsonSerializer.Deserialize<DownloadedLicenseFile>(fileContent, _jsonOptions);
+                    if (licenseFile?.License?.LicenseKey != null)
+                    {
+                        licenseKey = licenseFile.License.LicenseKey;
+                        Log.Information("🔍 Found downloaded license file - extracting license key");
+                    }
+                    else
+                    {
+                        Log.Warning("⚠️ Invalid license file format - missing license key");
+                        return;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    Log.Warning(ex, "⚠️ Failed to parse license file as JSON");
+                    return;
+                }
+            }
+            else
+            {
+                // This is a simple license key file
+                licenseKey = fileContent;
+                Log.Information("🔍 Found simple license key file");
+            }
+
+            Log.Information("🔍 Attempting automatic activation");
             
             // Attempt to activate the license
             var activated = await ActivateLicenseAsync(licenseKey);
@@ -355,7 +395,7 @@ public class LicenseService : ILicenseService
             Log.Warning(ex, "⚠️ Failed to load and activate license key file");
         }
     }
-
+    
     private bool VerifyLicenseSignature(SignedLicenseData license)
     {
         try
@@ -378,21 +418,23 @@ public class LicenseService : ILicenseService
                 license.IssuedBy ?? string.Empty
             });
 
-            // Calculate expected HMAC signature using embedded secret
-            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(EMBEDDED_LICENSE_SECRET));
-            var dataBytes = Encoding.UTF8.GetBytes(dataToVerify);
-            var expectedSignatureBytes = hmac.ComputeHash(dataBytes);
+            // Verify RSA signature using embedded public key
+            using var rsa = RSA.Create();
+            rsa.ImportFromPem(EMBEDDED_RSA_PUBLIC_KEY);
 
-            // Compare signatures (timing-safe)
-            var providedSignatureBytes = Convert.FromBase64String(license.Signature);
-            var isValid = CryptographicOperations.FixedTimeEquals(
-                expectedSignatureBytes,
-                providedSignatureBytes
+            var dataBytes = Encoding.UTF8.GetBytes(dataToVerify);
+            var signatureBytes = Convert.FromBase64String(license.Signature);
+
+            var isValid = rsa.VerifyData(
+                dataBytes,
+                signatureBytes,
+                HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pss
             );
 
             if (!isValid)
             {
-                Log.Warning("❌ License signature verification failed for key: {LicenseKey}", 
+                Log.Warning("❌ RSA signature verification failed for key: {LicenseKey}",
                     MaskLicenseKey(license.LicenseKey ?? "unknown"));
             }
 
@@ -400,11 +442,10 @@ public class LicenseService : ILicenseService
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "❌ Error verifying license signature");
+            Log.Error(ex, "❌ Error verifying RSA signature: {Error}", ex.Message);
             return false;
         }
     }
-
     private static LicenseInfo ConvertToLicenseInfo(SignedLicenseData signedData)
     {
         return new LicenseInfo
@@ -618,6 +659,18 @@ public class LicenseActivationResponse
 
     [JsonPropertyName("message")]
     public string Message { get; set; } = string.Empty;
+}
+
+public class DownloadedLicenseFile
+{
+    [JsonPropertyName("fileVersion")]
+    public string FileVersion { get; set; } = string.Empty;
+
+    [JsonPropertyName("license")]
+    public SignedLicenseData? License { get; set; }
+
+    [JsonPropertyName("instructions")]
+    public object? Instructions { get; set; }
 }
 
 #endregion

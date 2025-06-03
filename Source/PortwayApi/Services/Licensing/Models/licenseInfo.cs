@@ -34,5 +34,3 @@ public class LicenseInfo
     public bool IsValid => Status == "active" && (ExpiresAt == null || ExpiresAt > DateTime.UtcNow);
     public bool IsProfessional => Tier == "professional" && IsValid;
 }
-
-// LicenseTier enum and LicenseHelper are now in separate shared file

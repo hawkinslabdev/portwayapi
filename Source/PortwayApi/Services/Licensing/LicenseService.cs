@@ -10,15 +10,6 @@ namespace PortwayApi.Services;
 
 public class LicenseService : ILicenseService 
 {
-    private const string EMBEDDED_RSA_PUBLIC_KEY = @"-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApE+cOD4v1xLesrmVsE54
-H6oHSFNEE3WKxc3GSRLnzSuiHt79I5JPuS44YXs8gwFmltL615mfqyY1FL9VmmM1
-raQBhTEu94Mh4CbLvo2YWABdNpvb9Mka1DflBCdj2OoSh02RPBuHB/uMTuW60qPD
-UTBuevA/ZE44Pz+k1eMIOt6S1AkbMkidpJQQjBoe5LQIwqYzCQYSI6QihqNff+xH
-453VZnOGlv1zWcNQSLQLT0d5xafldUe4H3mEyayXIxVcD87aZa4pc2mFUFbct+AQ
-OM04QdYoLsjAtO33495iZdv5gQV3QJG6GSNd5DxKdG2u5frKDAWbO2CFbrRlx2JH
-AwIDAQAB
------END PUBLIC KEY-----";    
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
     private readonly string _licenseKeyFilePath;
@@ -274,6 +265,72 @@ AwIDAQAB
 
     #region Private Methods
 
+    private string GetRSAPublicKey()
+    {
+        const string hardcodedPublicKey = @"-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApE+cOD4v1xLesrmVsE54
+H6oHSFNEE3WKxc3GSRLnzSuiHt79I5JPuS44YXs8gwFmltL615mfqyY1FL9VmmM1
+raQBhTEu94Mh4CbLvo2YWABdNpvb9Mka1DflBCdj2OoSh02RPBuHB/uMTuW60qPD
+UTBuevA/ZE44Pz+k1eMIOt6S1AkbMkidpJQQjBoe5LQIwqYzCQYSI6QihqNff+xH
+453VZnOGlv1zWcNQSLQLT0d5xafldUe4H3mEyayXIxVcD87aZa4pc2mFUFbct+AQ
+OM04QdYoLsjAtO33495iZdv5gQV3QJG6GSNd5DxKdG2u5frKDAWbO2CFbrRlx2JH
+AwIDAQAB
+-----END PUBLIC KEY-----";
+        
+        return hardcodedPublicKey;
+    }
+    // Update the VerifyLicenseSignature method to use the new method
+    private bool VerifyLicenseSignature(SignedLicenseData license)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(license.Signature))
+            {
+                Log.Warning("⚠️ License missing signature");
+                return false;
+            }
+
+            // Recreate the exact same string that was signed on server
+            var dataToVerify = string.Join("|", new[]
+            {
+                license.LicenseKey ?? string.Empty,
+                license.ProductId ?? string.Empty,
+                license.Status ?? string.Empty,
+                license.Tier ?? string.Empty,
+                license.MachineId ?? string.Empty,
+                license.IssuedAt?.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") ?? string.Empty,
+                license.IssuedBy ?? string.Empty
+            });
+
+            // Verify RSA signature using public key from configuration
+            using var rsa = RSA.Create();
+            rsa.ImportFromPem(GetRSAPublicKey()); // Use the new method
+
+            var dataBytes = Encoding.UTF8.GetBytes(dataToVerify);
+            var signatureBytes = Convert.FromBase64String(license.Signature);
+
+            var isValid = rsa.VerifyData(
+                dataBytes,
+                signatureBytes,
+                HashAlgorithmName.SHA256,
+                RSASignaturePadding.Pss
+            );
+
+            if (!isValid)
+            {
+                Log.Warning("❌ RSA signature verification failed for key: {LicenseKey}",
+                    MaskLicenseKey(license.LicenseKey ?? "unknown"));
+            }
+
+            return isValid;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Error verifying RSA signature: {Error}", ex.Message);
+            return false;
+        }
+    }
+
     private async Task LoadLicenseAsync()
     {
         try
@@ -396,56 +453,6 @@ AwIDAQAB
         }
     }
     
-    private bool VerifyLicenseSignature(SignedLicenseData license)
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(license.Signature))
-            {
-                Log.Warning("⚠️ License missing signature");
-                return false;
-            }
-
-            // Recreate the exact same string that was signed on server
-            var dataToVerify = string.Join("|", new[]
-            {
-                license.LicenseKey ?? string.Empty,
-                license.ProductId ?? string.Empty,
-                license.Status ?? string.Empty,
-                license.Tier ?? string.Empty,
-                license.MachineId ?? string.Empty,
-                license.IssuedAt?.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") ?? string.Empty,
-                license.IssuedBy ?? string.Empty
-            });
-
-            // Verify RSA signature using embedded public key
-            using var rsa = RSA.Create();
-            rsa.ImportFromPem(EMBEDDED_RSA_PUBLIC_KEY);
-
-            var dataBytes = Encoding.UTF8.GetBytes(dataToVerify);
-            var signatureBytes = Convert.FromBase64String(license.Signature);
-
-            var isValid = rsa.VerifyData(
-                dataBytes,
-                signatureBytes,
-                HashAlgorithmName.SHA256,
-                RSASignaturePadding.Pss
-            );
-
-            if (!isValid)
-            {
-                Log.Warning("❌ RSA signature verification failed for key: {LicenseKey}",
-                    MaskLicenseKey(license.LicenseKey ?? "unknown"));
-            }
-
-            return isValid;
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "❌ Error verifying RSA signature: {Error}", ex.Message);
-            return false;
-        }
-    }
     private static LicenseInfo ConvertToLicenseInfo(SignedLicenseData signedData)
     {
         return new LicenseInfo

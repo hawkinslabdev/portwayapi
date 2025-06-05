@@ -54,12 +54,7 @@ public class LicenseManager : IHostedService, IDisposable
     /// <summary>
     /// Gets the current license edition name
     /// </summary>
-    public string CurrentEdition => CurrentTier switch
-    {
-        LicenseTier.Professional => "Professional",
-        LicenseTier.CommunityEdition => "Community Edition",
-        _ => "Community Edition"
-    };
+    public string CurrentEdition => LicenseHelper.GetTierDisplayName(CurrentTier);
 
     /// <summary>
     /// Checks if the current license is Professional or higher (cached, no async calls)
@@ -70,7 +65,7 @@ public class LicenseManager : IHostedService, IDisposable
         {
             lock (_lockObject)
             {
-                return _currentTier == LicenseTier.Professional;
+                return LicenseHelper.IsProfessional(_currentTier);
             }
         }
     }
@@ -86,7 +81,7 @@ public class LicenseManager : IHostedService, IDisposable
         lock (_lockObject)
         {
             // Professional tier has all features
-            return _currentTier == LicenseTier.Professional;
+            return LicenseHelper.IsProfessional(_currentTier);
         }
     }
 
@@ -281,43 +276,4 @@ public class LicenseManager : IHostedService, IDisposable
     {
         _periodicCheckTimer?.Dispose();
     }
-}
-
-/// <summary>
-/// Updated license tier enum with Community Edition
-/// </summary>
-public enum LicenseTier
-{
-    CommunityEdition,
-    Professional
-}
-
-/// <summary>
-/// Updated license helper with Community Edition support
-/// </summary>
-public static class LicenseHelper
-{
-    public static LicenseTier ParseTier(string tier)
-    {
-        return tier?.ToLowerInvariant() switch
-        {
-            "professional" or "pro" => LicenseTier.Professional,
-            "community" or "free" => LicenseTier.CommunityEdition,
-            _ => LicenseTier.CommunityEdition
-        };
-    }
-
-    public static string GetTierDisplayName(LicenseTier tier)
-    {
-        return tier switch
-        {
-            LicenseTier.Professional => "Professional",
-            LicenseTier.CommunityEdition => "Community Edition",
-            _ => "Community Edition"
-        };
-    }
-
-    public static bool IsProfessional(LicenseTier tier) => tier == LicenseTier.Professional;
-    
-    public static bool IsCommunityEdition(LicenseTier tier) => tier == LicenseTier.CommunityEdition;
 }

@@ -12,8 +12,7 @@ public class LicenseService : ILicenseService
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
-    private readonly string _licenseKeyFilePath;
-    private readonly string _activatedLicenseFilePath;
+    private readonly string _workingDirectory;
     private readonly string _machineId;
     private readonly JsonSerializerOptions _jsonOptions;
     
@@ -24,8 +23,7 @@ public class LicenseService : ILicenseService
     {
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
-        _licenseKeyFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".license");
-        _activatedLicenseFilePath = Path.Combine(Directory.GetCurrentDirectory(), ".license-key");
+        _workingDirectory = Directory.GetCurrentDirectory();
         _machineId = GetMachineId();
         
         _jsonOptions = new JsonSerializerOptions
@@ -126,7 +124,7 @@ public class LicenseService : ILicenseService
             await SaveActivatedLicenseAsync(result.License);
             
             // Delete the original license key file since we no longer need it
-            await CleanupLicenseKeyFileAsync();
+            await CleanupLicenseKeyFilesAsync();
 
             _cachedLicense = licenseInfo;
             _lastCheck = DateTime.UtcNow;
@@ -202,16 +200,17 @@ public class LicenseService : ILicenseService
         {
             var deletedFiles = new List<string>();
 
-            // Delete activated license file
-            if (await TryDeleteFileAsync(_activatedLicenseFilePath))
+            // Find and delete all possible license files
+            var licenseFilePaths = await FindAllLicenseFilesAsync();
+            
+            foreach (var filePath in licenseFilePaths)
             {
-                deletedFiles.Add("activated license");
-            }
-
-            // Delete license key file
-            if (await TryDeleteFileAsync(_licenseKeyFilePath))
-            {
-                deletedFiles.Add("license key");
+                if (await TryDeleteFileAsync(filePath))
+                {
+                    var fileName = Path.GetFileName(filePath);
+                    deletedFiles.Add(fileName);
+                    Log.Debug("🗑️ Deleted license file: {FileName}", fileName);
+                }
             }
 
             // Clear cached license
@@ -263,7 +262,353 @@ public class LicenseService : ILicenseService
         return _cachedLicense?.IsProfessional ?? false;
     }
 
-    #region Private Methods
+    #region Enhanced License File Discovery
+
+    /// <summary>
+    /// Discovers all possible license files in the working directory
+    /// </summary>
+    private Task<List<string>> FindAllLicenseFilesAsync()
+    {
+        var licenseFiles = new List<string>();
+        
+        try
+        {
+            // Get all files in the working directory
+            var allFiles = Directory.GetFiles(_workingDirectory);
+            
+            foreach (var filePath in allFiles)
+            {
+                var fileName = Path.GetFileName(filePath);
+                var fileNameLower = fileName.ToLowerInvariant();
+                
+                // Check for various license file patterns
+                if (IsLicenseFile(fileName, fileNameLower))
+                {
+                    licenseFiles.Add(filePath);
+                    Log.Debug("🔍 Found potential license file: {FileName}", fileName);
+                }
+            }
+            
+            // Sort by priority (activated licenses first, then license keys)
+            licenseFiles.Sort((a, b) => GetLicenseFilePriority(a).CompareTo(GetLicenseFilePriority(b)));
+            
+            Log.Debug("📁 Discovered {Count} license files", licenseFiles.Count);
+            
+            return Task.FromResult(licenseFiles);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Error discovering license files");
+            return Task.FromResult(licenseFiles);
+        }
+    }
+
+    /// <summary>
+    /// Determines if a file is a license file based on its name
+    /// </summary>
+    private static bool IsLicenseFile(string fileName, string fileNameLower)
+    {
+        // Original patterns (highest priority)
+        if (fileName == ".license-key" || fileName == ".license")
+            return true;
+            
+        // Files with .license extension (this covers license.license, mykey.license, etc.)
+        if (fileNameLower.EndsWith(".license"))
+            return true;
+        
+        return false;
+    }
+
+    /// <summary>
+    /// Gets the priority of a license file (lower number = higher priority)
+    /// </summary>
+    private static int GetLicenseFilePriority(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        
+        // Activated license files have highest priority
+        if (fileName == ".license-key") return 1;
+        
+        // Original license key files
+        if (fileName == ".license") return 2;
+        
+        // Files with .license extension (license.license, mykey.license, etc.)
+        if (fileName.ToLowerInvariant().EndsWith(".license")) return 3;
+        
+        // Fallback (shouldn't happen with our filtering)
+        return 4;
+    }
+
+    /// <summary>
+    /// Attempts to load a license file and determine its type
+    /// </summary>
+    private async Task<(bool IsActivated, string Content)> TryLoadLicenseFileAsync(string filePath)
+    {
+        try
+        {
+            var content = await File.ReadAllTextAsync(filePath, Encoding.UTF8);
+            
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                Log.Debug("📄 License file is empty: {FileName}", Path.GetFileName(filePath));
+                return (false, string.Empty);
+            }
+            
+            content = content.Trim();
+            
+            // Try to determine if this is an activated license (contains signature)
+            if (content.StartsWith("{") && content.Contains("\"signature\""))
+            {
+                Log.Debug("🔐 Found activated license file: {FileName}", Path.GetFileName(filePath));
+                return (true, content);
+            }
+            
+            // Check if it's a downloaded license file
+            if (content.StartsWith("{") && content.Contains("\"license\""))
+            {
+                Log.Debug("📋 Found license file with license data: {FileName}", Path.GetFileName(filePath));
+                return (false, content);
+            }
+            
+            // Assume it's a simple license key
+            Log.Debug("🔑 Found simple license key file: {FileName}", Path.GetFileName(filePath));
+            return (false, content);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Failed to load license file: {FileName}", Path.GetFileName(filePath));
+            return (false, string.Empty);
+        }
+    }
+
+    #endregion
+
+    #region Updated License Loading Logic
+
+    private async Task LoadLicenseAsync()
+    {
+        try
+        {
+            // Find all license files
+            var licenseFiles = await FindAllLicenseFilesAsync();
+            
+            if (!licenseFiles.Any())
+            {
+                _cachedLicense = null;
+                Log.Information("ℹ️ No license files found - running in Community Edition");
+                return;
+            }
+            
+            // Try to load licenses in order of priority
+            foreach (var filePath in licenseFiles)
+            {
+                var fileName = Path.GetFileName(filePath);
+                Log.Debug("🔍 Examining license file: {FileName}", fileName);
+                
+                var (isActivated, content) = await TryLoadLicenseFileAsync(filePath);
+                
+                if (string.IsNullOrEmpty(content))
+                    continue;
+                
+                if (isActivated)
+                {
+                    // Try to load as activated license
+                    if (await TryLoadActivatedLicenseFromContentAsync(content, fileName))
+                    {
+                        Log.Information("✅ Successfully loaded activated license from: {FileName}", fileName);
+                        return;
+                    }
+                }
+                else
+                {
+                    // Try to activate this license key
+                    if (await TryLoadAndActivateLicenseFromContentAsync(content, fileName))
+                    {
+                        Log.Information("✅ Successfully activated license from: {FileName}", fileName);
+                        return;
+                    }
+                }
+            }
+            
+            // No valid license found
+            _cachedLicense = null;
+            Log.Warning("⚠️ Found license files but none were valid - running in Community Edition");
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Failed to load license");
+            _cachedLicense = null;
+        }
+    }
+
+    private Task<bool> TryLoadActivatedLicenseFromContentAsync(string content, string fileName)
+    {
+        try
+        {
+            var licenseData = JsonSerializer.Deserialize<SignedLicenseData>(content, _jsonOptions);
+            
+            if (licenseData != null && VerifyLicenseSignature(licenseData))
+            {
+                _cachedLicense = ConvertToLicenseInfo(licenseData);
+                _lastCheck = DateTime.UtcNow;
+                Log.Information("📋 Valid activated license loaded from {FileName}: {Tier} tier", fileName, _cachedLicense.Tier);
+                return Task.FromResult(true);
+            }
+            else
+            {
+                Log.Warning("❌ Invalid license signature in file: {FileName}", fileName);
+                return Task.FromResult(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Failed to parse activated license from: {FileName}", fileName);
+            return Task.FromResult(false);
+        }
+    }
+
+    private async Task<bool> TryLoadAndActivateLicenseFromContentAsync(string content, string fileName)
+    {
+        try
+        {
+            string licenseKey;
+            
+            // Check if this is a JSON license file or a simple license key
+            if (content.StartsWith("{") && content.Contains("\"license\""))
+            {
+                try
+                {
+                    // This is a downloaded license file - extract the license key
+                    var licenseFile = JsonSerializer.Deserialize<DownloadedLicenseFile>(content, _jsonOptions);
+                    if (licenseFile?.License?.LicenseKey != null)
+                    {
+                        licenseKey = licenseFile.License.LicenseKey;
+                        Log.Information("🔍 Extracted license key from downloaded license file: {FileName}", fileName);
+                    }
+                    else
+                    {
+                        Log.Warning("⚠️ Invalid license file format in {FileName} - missing license key", fileName);
+                        return false;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    Log.Warning(ex, "⚠️ Failed to parse license file {FileName} as JSON", fileName);
+                    return false;
+                }
+            }
+            else
+            {
+                // This is a simple license key file
+                licenseKey = content;
+                Log.Information("🔍 Found simple license key in file: {FileName}", fileName);
+            }
+
+            Log.Information("🔍 Attempting automatic activation from: {FileName}", fileName);
+            
+            // Attempt to activate the license
+            var activated = await ActivateLicenseAsync(licenseKey);
+            
+            if (!activated)
+            {
+                Log.Warning("⚠️ Failed to activate license from {FileName}", fileName);
+                return false;
+            }
+            
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Failed to load and activate license from: {FileName}", fileName);
+            return false;
+        }
+    }
+
+    #endregion
+
+    #region Updated File Management
+
+    private async Task SaveActivatedLicenseAsync(SignedLicenseData signedLicense)
+    {
+        try
+        {
+            // Save to the standard .license-key file
+            var activatedLicenseFilePath = Path.Combine(_workingDirectory, ".license-key");
+            
+            // Redact the license key for file output only
+            var redactedLicense = JsonSerializer.Deserialize<SignedLicenseData>(
+                JsonSerializer.Serialize(signedLicense, _jsonOptions), _jsonOptions);
+            if (redactedLicense != null)
+            {
+                redactedLicense.LicenseKey = MaskLicenseKeyForFile(signedLicense.LicenseKey);
+            }
+            var content = JsonSerializer.Serialize(redactedLicense ?? signedLicense, _jsonOptions);
+            await File.WriteAllTextAsync(activatedLicenseFilePath, content, Encoding.UTF8);
+            Log.Information("💾 Activated license saved to .license-key file");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "❌ Failed to save activated license file");
+            throw;
+        }
+    }
+
+    private async Task CleanupLicenseKeyFilesAsync()
+    {
+        try
+        {
+            var licenseFiles = await FindAllLicenseFilesAsync();
+            
+            foreach (var filePath in licenseFiles)
+            {
+                var fileName = Path.GetFileName(filePath);
+                
+                // Don't delete the activated license file
+                if (fileName == ".license-key")
+                    continue;
+                
+                // Only delete license files (.license extension or exact .license filename)
+                if (fileName == ".license" || fileName.ToLowerInvariant().EndsWith(".license"))
+                {
+                    try
+                    {
+                        await Task.Run(() => File.Delete(filePath));
+                        Log.Information("🗑️ Removed original license file: {FileName}", fileName);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "⚠️ Failed to cleanup license file: {FileName}", fileName);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Failed to cleanup license key files");
+        }
+    }
+
+    private async Task<bool> TryDeleteFileAsync(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+            {
+                await Task.Run(() => File.Delete(filePath));
+                return true;
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "⚠️ Failed to delete file: {FilePath}", filePath);
+            return false;
+        }
+    }
+
+    #endregion
+
+    #region Private Helper Methods
 
     private string GetRSAPublicKey()
     {
@@ -279,7 +624,7 @@ AwIDAQAB
         
         return hardcodedPublicKey;
     }
-    // Update the VerifyLicenseSignature method to use the new method
+
     private bool VerifyLicenseSignature(SignedLicenseData license)
     {
         try
@@ -304,7 +649,7 @@ AwIDAQAB
 
             // Verify RSA signature using public key from configuration
             using var rsa = RSA.Create();
-            rsa.ImportFromPem(GetRSAPublicKey()); // Use the new method
+            rsa.ImportFromPem(GetRSAPublicKey());
 
             var dataBytes = Encoding.UTF8.GetBytes(dataToVerify);
             var signatureBytes = Convert.FromBase64String(license.Signature);
@@ -331,128 +676,6 @@ AwIDAQAB
         }
     }
 
-    private async Task LoadLicenseAsync()
-    {
-        try
-        {
-            // First priority: Check for activated license file
-            if (File.Exists(_activatedLicenseFilePath))
-            {
-                if (await TryLoadActivatedLicenseAsync())
-                {
-                    return;
-                }
-            }
-
-            // Second priority: Check for license key file that needs activation
-            if (File.Exists(_licenseKeyFilePath))
-            {
-                await TryLoadAndActivateLicenseKeyAsync();
-                return;
-            }
-
-            // No license found
-            _cachedLicense = null;
-            Log.Information("ℹ️ No license found - running in Community Edition");
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "⚠️ Failed to load license");
-            _cachedLicense = null;
-        }
-    }
-
-    private async Task<bool> TryLoadActivatedLicenseAsync()
-    {
-        try
-        {
-            var content = await File.ReadAllTextAsync(_activatedLicenseFilePath, Encoding.UTF8);
-            var licenseData = JsonSerializer.Deserialize<SignedLicenseData>(content, _jsonOptions);
-            
-            if (licenseData != null && VerifyLicenseSignature(licenseData))
-            {
-                _cachedLicense = ConvertToLicenseInfo(licenseData);
-                _lastCheck = DateTime.UtcNow;
-                Log.Information("📋 Valid activated license loaded: {Tier} tier", _cachedLicense.Tier);
-                return true;
-            }
-            else
-            {
-                Log.Error("❌ Activated license file signature invalid - removing tampered license");
-                await TryDeleteFileAsync(_activatedLicenseFilePath);
-                Log.Warning("🗑️ Deleted invalid activated license file");
-                return false;
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "⚠️ Failed to load activated license file");
-            return false;
-        }
-    }
-
-    private async Task TryLoadAndActivateLicenseKeyAsync()
-    {
-        try
-        {
-            var fileContent = (await File.ReadAllTextAsync(_licenseKeyFilePath, Encoding.UTF8)).Trim();
-            
-            if (string.IsNullOrEmpty(fileContent))
-            {
-                Log.Warning("⚠️ License key file is empty");
-                return;
-            }
-
-            string licenseKey;
-            
-            // Check if this is a JSON license file or a simple license key
-            if (fileContent.StartsWith("{") && fileContent.Contains("\"license\""))
-            {
-                try
-                {
-                    // This is a downloaded license file - extract the license key
-                    var licenseFile = JsonSerializer.Deserialize<DownloadedLicenseFile>(fileContent, _jsonOptions);
-                    if (licenseFile?.License?.LicenseKey != null)
-                    {
-                        licenseKey = licenseFile.License.LicenseKey;
-                        Log.Information("🔍 Found downloaded license file - extracting license key");
-                    }
-                    else
-                    {
-                        Log.Warning("⚠️ Invalid license file format - missing license key");
-                        return;
-                    }
-                }
-                catch (JsonException ex)
-                {
-                    Log.Warning(ex, "⚠️ Failed to parse license file as JSON");
-                    return;
-                }
-            }
-            else
-            {
-                // This is a simple license key file
-                licenseKey = fileContent;
-                Log.Information("🔍 Found simple license key file");
-            }
-
-            Log.Information("🔍 Attempting automatic activation");
-            
-            // Attempt to activate the license
-            var activated = await ActivateLicenseAsync(licenseKey);
-            
-            if (!activated)
-            {
-                Log.Warning("⚠️ Failed to activate license from .license file");
-                // Keep the file so user can try again or fix issues
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "⚠️ Failed to load and activate license key file");
-        }
-    }
-    
     private static LicenseInfo ConvertToLicenseInfo(SignedLicenseData signedData)
     {
         return new LicenseInfo
@@ -469,65 +692,9 @@ AwIDAQAB
         };
     }
 
-    private async Task SaveActivatedLicenseAsync(SignedLicenseData signedLicense)
-    {
-        try
-        {
-            // Redact the license key for file output only
-            var redactedLicense = JsonSerializer.Deserialize<SignedLicenseData>(
-                JsonSerializer.Serialize(signedLicense, _jsonOptions), _jsonOptions);
-            if (redactedLicense != null)
-            {
-                redactedLicense.LicenseKey = MaskLicenseKeyForFile(signedLicense.LicenseKey);
-            }
-            var content = JsonSerializer.Serialize(redactedLicense ?? signedLicense, _jsonOptions);
-            await File.WriteAllTextAsync(_activatedLicenseFilePath, content, Encoding.UTF8);
-            Log.Information("💾 Activated license saved to .license-key file");
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "❌ Failed to save activated license file");
-            throw;
-        }
-    }
-
-    private async Task CleanupLicenseKeyFileAsync()
-    {
-        try
-        {
-            if (File.Exists(_licenseKeyFilePath))
-            {
-                await Task.Run(() => File.Delete(_licenseKeyFilePath));
-                Log.Information("🗑️ Removed original license key file");
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "⚠️ Failed to cleanup license key file");
-        }
-    }
-
-    private async Task<bool> TryDeleteFileAsync(string filePath)
-    {
-        try
-        {
-            if (File.Exists(filePath))
-            {
-                await Task.Run(() => File.Delete(filePath));
-                return true;
-            }
-            return false;
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "⚠️ Failed to delete file: {FilePath}", filePath);
-            return false;
-        }
-    }
-
     private string GetMachineId()
     {
-        var idFile = Path.Combine(Directory.GetCurrentDirectory(), ".machine-id");
+        var idFile = Path.Combine(_workingDirectory, ".machine-id");
         
         try
         {
